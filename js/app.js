@@ -247,7 +247,11 @@ const App = (() => {
     if (state.objectives) {
       if (state.objectives.type === 'boss') objText = `BOSS HP: ${state.bossHp}/${state.bossMaxHp}`;
       else if (state.objectives.type === 'collect' && state.objectives.items) {
-        objText = state.objectives.items.map(item => `${item.gemType}: ${state.collectProgress[item.gemType] || 0}/${item.count}`).join(' | ');
+        objText = state.objectives.items.map(item => {
+          const gemInfo = Gems.TYPES.find(t => t.id === item.gemType);
+          const label = gemInfo ? `${gemInfo.emoji}${gemInfo.name}` : item.gemType;
+          return `${label}: ${state.collectProgress[item.gemType] || 0}/${item.count}`;
+        }).join(' | ');
       }
     }
 
@@ -599,8 +603,10 @@ const App = (() => {
       Gems.TYPES.forEach(g => {
         const d = document.createElement('div');
         d.className = 'tutorial-gem';
-        d.style.background = `radial-gradient(circle at 35% 35%, ${g.c1}, ${g.c2})`;
-        d.style.boxShadow = `0 2px 8px ${g.c2}40`;
+        d.style.background = `linear-gradient(135deg, ${g.c1}, ${g.c2})`;
+        d.style.border = `2px solid ${g.border}`;
+        d.style.borderRadius = '6px';
+        d.textContent = g.emoji;
         gemsDiv.appendChild(d);
       });
     }

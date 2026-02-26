@@ -413,8 +413,8 @@ const Board = (() => {
         if (collectProgress[typeId] !== undefined) collectProgress[typeId]++;
         // Add potion ingredients
         const data = Storage.get();
-        const ingredientMap = ['arcane', 'fel', 'frost', 'fire', 'shadow', 'nature', 'holy'];
-        const ingr = ingredientMap[gem.type] || 'arcane';
+        const ingredientMap = ['holy', 'fire', 'arcane', 'shadow', 'nature', 'frost', 'fel'];
+        const ingr = ingredientMap[gem.type] || 'holy';
         data.potions.ingredients[ingr] = (data.potions.ingredients[ingr] || 0) + 1;
         data.stats.totalGems++;
       }
@@ -1057,24 +1057,24 @@ const Board = (() => {
     const x = sel.col * cellSize + padding;
     const y = sel.row * cellSize + padding;
     const pulse = 0.5 + 0.5 * Math.sin((t || 0) * 0.005);
-    const cx = x + cellSize / 2, cy = y + cellSize / 2;
-    const r = cellSize * 0.44;
+    const margin = cellSize * 0.02;
+    const tileW = cellSize - margin * 2;
+    const cr = tileW * 0.14;
 
     ctx.save();
-    ctx.strokeStyle = `rgba(255,215,0,${0.5 + 0.3 * pulse})`;
+    // Outer glow
+    ctx.strokeStyle = `rgba(255,215,0,${0.15 + 0.1 * pulse})`;
+    ctx.lineWidth = 6;
+    roundRect(ctx, x + margin - 2, y + margin - 2, tileW + 4, tileW + 4, cr + 2);
+    ctx.stroke();
+    // Inner dashed border
+    ctx.strokeStyle = `rgba(255,215,0,${0.6 + 0.3 * pulse})`;
     ctx.lineWidth = 2.5;
     ctx.setLineDash([4, 3]);
     ctx.lineDashOffset = -(t || 0) * 0.02;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    roundRect(ctx, x + margin, y + margin, tileW, tileW, cr);
     ctx.stroke();
     ctx.setLineDash([]);
-
-    ctx.beginPath();
-    ctx.arc(cx, cy, r + 3, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(255,215,0,${0.15 + 0.1 * pulse})`;
-    ctx.lineWidth = 6;
-    ctx.stroke();
     ctx.restore();
   }
 

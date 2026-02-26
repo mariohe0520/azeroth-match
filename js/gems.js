@@ -1,32 +1,38 @@
 /**
- * gems.js — 魔法宝石类型、特殊宝石系统
- * 艾泽拉斯消消乐 — World of Warcraft Theme
+ * gems.js — WoW种族棋子系统
+ * 艾泽拉斯消消乐 — 部落 vs 联盟 种族对决
  */
 'use strict';
 
 const Gems = (() => {
-  // 7 base gem types — WoW magical resources
+  // 7 WoW race types — 3 Alliance, 3 Horde, 1 Neutral
   const TYPES = [
-    { id: 'arcane',    name: '奥术水晶', emoji: '💜', c1: '#B794F6', c2: '#805AD5', glow: '#D6BCFA' },
-    { id: 'fel',       name: '邪能之火', emoji: '💚', c1: '#68D391', c2: '#38A169', glow: '#9AE6B4' },
-    { id: 'frost',     name: '冰霜碎片', emoji: '💠', c1: '#63B3ED', c2: '#3182CE', glow: '#90CDF4' },
-    { id: 'fire',      name: '烈焰之心', emoji: '🔥', c1: '#FC8181', c2: '#E53E3E', glow: '#FEB2B2' },
-    { id: 'shadow',    name: '暗影宝珠', emoji: '🖤', c1: '#A0AEC0', c2: '#4A5568', glow: '#CBD5E0' },
-    { id: 'nature',    name: '自然精华', emoji: '🌿', c1: '#9AE6B4', c2: '#48BB78', glow: '#C6F6D5' },
-    { id: 'holy',      name: '圣光之泪', emoji: '✨', c1: '#FEFCBF', c2: '#ECC94B', glow: '#FFF9C4' }
+    { id: 'human',    name: '人类骑士',  emoji: '⚔️', faction: 'alliance', c1: '#2B5EA7', c2: '#152E53', border: '#5B9AE8', glow: '#3A7BD5' },
+    { id: 'orc',      name: '兽人狂战',  emoji: '🪓',  faction: 'horde',    c1: '#9B2C2C', c2: '#4D1616', border: '#D45555', glow: '#B33C3C' },
+    { id: 'nightelf', name: '暗夜精灵',  emoji: '🌙', faction: 'alliance', c1: '#6B3FA0', c2: '#351F50', border: '#9B6FC0', glow: '#7B4FB0' },
+    { id: 'undead',   name: '亡灵术士',  emoji: '💀', faction: 'horde',    c1: '#2E7A4B', c2: '#173D25', border: '#4ACA7B', glow: '#2EAA5B' },
+    { id: 'tauren',   name: '牛头人',    emoji: '🦬', faction: 'horde',    c1: '#A67C2E', c2: '#533E17', border: '#D4A052', glow: '#C49A3C' },
+    { id: 'dwarf',    name: '矮人铁匠',  emoji: '🔨', faction: 'alliance', c1: '#4A7A9A', c2: '#253D4D', border: '#6A9ABA', glow: '#5A8AAA' },
+    { id: 'dragon',   name: '巨龙',      emoji: '🐉', faction: 'neutral',  c1: '#B8860B', c2: '#5C4305', border: '#E8B63B', glow: '#D4A020' }
   ];
 
   const SPECIALS = {
     LINE_H:  { id: 'line_h',  name: '横向风暴', symbol: '⚡', desc: '风暴之怒横扫一行' },
     LINE_V:  { id: 'line_v',  name: '纵向雷击', symbol: '⚡', desc: '雷霆之力贯穿一列' },
     BOMB:    { id: 'bomb',    name: '奥术爆破', symbol: '💥', desc: '奥术能量爆破3×3区域' },
-    RAINBOW: { id: 'rainbow', name: '虹彩宝石', symbol: '🌈', desc: '净化所有同色魔法宝石' }
+    RAINBOW: { id: 'rainbow', name: '虹彩宝石', symbol: '🌈', desc: '净化所有同色棋子' }
   };
 
   const OBSTACLES = {
     ICE:   { id: 'ice',   name: '冰封', hp: 2, symbol: '🧊' },
     STONE: { id: 'stone', name: '岩石', hp: -1, symbol: '🪨' },
     VINE:  { id: 'vine',  name: '藤蔓', hp: 1, symbol: '🌿', spreads: true }
+  };
+
+  const FACTION_COLORS = {
+    horde:    { primary: '#B30000', light: '#FF4444' },
+    alliance: { primary: '#0046B3', light: '#4488FF' },
+    neutral:  { primary: '#B8860B', light: '#E8C63B' }
   };
 
   function createGem(typeIndex, special) {
@@ -42,12 +48,9 @@ const Gems = (() => {
   function getSpecialFromMatch(matchCells, swapDir) {
     const count = matchCells.length;
     if (count >= 5) return 'rainbow';
-
     const rows = new Set(matchCells.map(c => c.row));
     const cols = new Set(matchCells.map(c => c.col));
-
     if (rows.size >= 2 && cols.size >= 2 && count >= 4) return 'bomb';
-
     if (count === 4) {
       if (rows.size === 1) return 'line_v';
       if (cols.size === 1) return 'line_h';
@@ -55,6 +58,8 @@ const Gems = (() => {
     }
     return null;
   }
+
+  // ======== DRAWING ========
 
   function drawGem(ctx, x, y, size, gem, scale, alpha, time) {
     if (!gem || gem.type === null || gem.type === undefined) return;
@@ -64,123 +69,190 @@ const Gems = (() => {
 
     const cx = x + size / 2;
     const cy = y + size / 2;
-    const r = size * 0.38 * scale;
+    const margin = size * 0.04;
+    const tileW = (size - margin * 2) * scale;
+    const half = tileW / 2;
+    const cr = tileW * 0.14;
 
     ctx.save();
     ctx.globalAlpha = alpha;
 
-    ctx.beginPath();
-    ctx.arc(cx + 1, cy + 2, r * 0.92, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    // Drop shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    roundRect(ctx, cx - half + 1.5, cy - half + 2.5, tileW, tileW, cr);
     ctx.fill();
 
-    const grad = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.05, cx, cy, r);
+    // Main tile — rich gradient
+    const grad = ctx.createLinearGradient(cx - half, cy - half, cx + half, cy + half);
     grad.addColorStop(0, g.c1);
-    grad.addColorStop(1, g.c2);
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    grad.addColorStop(0.5, g.c2);
+    grad.addColorStop(1, g.c1);
+    roundRect(ctx, cx - half, cy - half, tileW, tileW, cr);
     ctx.fillStyle = grad;
     ctx.fill();
 
-    ctx.beginPath();
-    ctx.arc(cx, cy, r * 0.82, 0, Math.PI * 2);
-    const inner = ctx.createRadialGradient(cx - r * 0.2, cy - r * 0.2, r * 0.05, cx, cy, r * 0.82);
-    inner.addColorStop(0, 'rgba(255,255,255,0.3)');
-    inner.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = inner;
+    // Top bevel highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    roundRect(ctx, cx - half + 2, cy - half + 2, tileW - 4, tileW * 0.3, cr - 1);
     ctx.fill();
 
-    ctx.beginPath();
-    ctx.ellipse(cx - r * 0.2, cy - r * 0.22, r * 0.32, r * 0.22, -0.3, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    // Bottom edge depth
+    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    roundRect(ctx, cx - half + 2, cy + half - tileW * 0.15, tileW - 4, tileW * 0.13, cr - 1);
     ctx.fill();
 
-    ctx.beginPath();
-    ctx.arc(cx - r * 0.35, cy - r * 0.35, r * 0.08, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.7)';
-    ctx.fill();
+    // Border — faction colored, thick
+    roundRect(ctx, cx - half, cy - half, tileW, tileW, cr);
+    ctx.strokeStyle = g.border;
+    ctx.lineWidth = Math.max(1.5, 2.5 * scale);
+    ctx.stroke();
 
-    ctx.font = `${Math.round(size * 0.32 * scale)}px sans-serif`;
+    // Large centered emoji — with shadow for depth
+    const emojiSize = Math.round(tileW * 0.52);
+    ctx.font = `${emojiSize}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(g.emoji, cx, cy + 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillText(g.emoji, cx + 1, cy + 2);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(g.emoji, cx, cy);
 
-    if (gem.special) drawSpecialIndicator(ctx, cx, cy, r, gem.special, time || 0);
+    // Faction diamond indicator — top right corner
+    const fc = FACTION_COLORS[g.faction];
+    if (fc) {
+      const fx = cx + half - tileW * 0.14;
+      const fy = cy - half + tileW * 0.14;
+      const fr = tileW * 0.055;
+      ctx.save();
+      ctx.translate(fx, fy);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillStyle = fc.primary;
+      ctx.fillRect(-fr, -fr, fr * 2, fr * 2);
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(-fr, -fr, fr * 2, fr * 2);
+      ctx.restore();
+    }
+
+    // Special gem overlay
+    if (gem.special) drawSpecialIndicator(ctx, cx, cy, half, gem.special, time || 0);
+
+    // Obstacle overlay
     if (gem.obstacle) drawObstacleOverlay(ctx, x, y, size, gem.obstacle);
 
-    if (time && !gem.special) {
-      const pulse = Math.sin(time * 0.002 + gem.type * 0.7) * 0.08;
-      if (pulse > 0) {
-        ctx.beginPath();
-        ctx.arc(cx, cy, r + 3, 0, Math.PI * 2);
-        ctx.fillStyle = g.glow.replace(')', `,${pulse})`).replace('rgb', 'rgba');
-        ctx.fill();
-      }
-    }
     ctx.restore();
   }
 
-  function drawSpecialIndicator(ctx, cx, cy, r, special, time) {
+  function drawSpecialIndicator(ctx, cx, cy, half, special, time) {
     const pulse = 0.5 + 0.5 * Math.sin(time * 0.004);
     ctx.save();
+
     switch (special) {
       case 'line_h':
         ctx.strokeStyle = `rgba(255,255,100,${0.6 + 0.3 * pulse})`;
-        ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(cx - r * 0.7, cy); ctx.lineTo(cx + r * 0.7, cy); ctx.stroke();
+        ctx.lineWidth = 2.5;
         ctx.beginPath();
-        ctx.moveTo(cx - r * 0.7, cy - 3); ctx.lineTo(cx - r * 0.9, cy); ctx.lineTo(cx - r * 0.7, cy + 3);
-        ctx.moveTo(cx + r * 0.7, cy - 3); ctx.lineTo(cx + r * 0.9, cy); ctx.lineTo(cx + r * 0.7, cy + 3);
-        ctx.stroke(); break;
+        ctx.moveTo(cx - half * 0.7, cy);
+        ctx.lineTo(cx + half * 0.7, cy);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx - half * 0.7, cy - 3);
+        ctx.lineTo(cx - half * 0.9, cy);
+        ctx.lineTo(cx - half * 0.7, cy + 3);
+        ctx.moveTo(cx + half * 0.7, cy - 3);
+        ctx.lineTo(cx + half * 0.9, cy);
+        ctx.lineTo(cx + half * 0.7, cy + 3);
+        ctx.stroke();
+        break;
       case 'line_v':
         ctx.strokeStyle = `rgba(255,255,100,${0.6 + 0.3 * pulse})`;
-        ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(cx, cy - r * 0.7); ctx.lineTo(cx, cy + r * 0.7); ctx.stroke();
+        ctx.lineWidth = 2.5;
         ctx.beginPath();
-        ctx.moveTo(cx - 3, cy - r * 0.7); ctx.lineTo(cx, cy - r * 0.9); ctx.lineTo(cx + 3, cy - r * 0.7);
-        ctx.moveTo(cx - 3, cy + r * 0.7); ctx.lineTo(cx, cy + r * 0.9); ctx.lineTo(cx + 3, cy + r * 0.7);
-        ctx.stroke(); break;
+        ctx.moveTo(cx, cy - half * 0.7);
+        ctx.lineTo(cx, cy + half * 0.7);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx - 3, cy - half * 0.7);
+        ctx.lineTo(cx, cy - half * 0.9);
+        ctx.lineTo(cx + 3, cy - half * 0.7);
+        ctx.moveTo(cx - 3, cy + half * 0.7);
+        ctx.lineTo(cx, cy + half * 0.9);
+        ctx.lineTo(cx + 3, cy + half * 0.7);
+        ctx.stroke();
+        break;
       case 'bomb':
         ctx.strokeStyle = `rgba(255,140,0,${0.5 + 0.4 * pulse})`;
-        ctx.lineWidth = 2;
-        const br = r * 0.65;
-        ctx.beginPath(); ctx.arc(cx, cy, br, 0, Math.PI * 2); ctx.stroke();
+        ctx.lineWidth = 2.5;
         ctx.beginPath();
-        ctx.moveTo(cx - br * 0.5, cy - br * 0.5); ctx.lineTo(cx + br * 0.5, cy + br * 0.5);
-        ctx.moveTo(cx + br * 0.5, cy - br * 0.5); ctx.lineTo(cx - br * 0.5, cy + br * 0.5);
-        ctx.stroke(); break;
+        ctx.moveTo(cx - half * 0.5, cy - half * 0.5);
+        ctx.lineTo(cx + half * 0.5, cy + half * 0.5);
+        ctx.moveTo(cx + half * 0.5, cy - half * 0.5);
+        ctx.lineTo(cx - half * 0.5, cy + half * 0.5);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(cx, cy, half * 0.6, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
       case 'rainbow':
-        const angle = (time || 0) * 0.003;
         const colors = ['#FF0000', '#FF8800', '#FFFF00', '#00FF00', '#0088FF', '#8800FF'];
+        const angle = (time || 0) * 0.003;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = 0.6 + 0.3 * pulse;
         for (let i = 0; i < colors.length; i++) {
           const a = angle + (Math.PI * 2 * i) / colors.length;
-          ctx.beginPath(); ctx.arc(cx, cy, r * 0.85, a, a + Math.PI * 2 / colors.length);
-          ctx.strokeStyle = colors[i]; ctx.lineWidth = 2.5; ctx.globalAlpha = 0.6 + 0.3 * pulse; ctx.stroke();
-        } break;
+          ctx.strokeStyle = colors[i];
+          ctx.beginPath();
+          ctx.arc(cx, cy, half * 0.8, a, a + Math.PI * 2 / colors.length);
+          ctx.stroke();
+        }
+        break;
     }
     ctx.restore();
   }
 
   function drawObstacleOverlay(ctx, x, y, size, obstacle) {
-    ctx.save(); ctx.globalAlpha = 0.5;
+    const margin = size * 0.04;
+    const tileW = size - margin * 2;
+    const tx = x + margin;
+    const ty = y + margin;
+    const cr = tileW * 0.14;
+
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+
     if (obstacle.id === 'ice') {
       ctx.fillStyle = obstacle.hp > 1 ? 'rgba(173,216,230,0.6)' : 'rgba(173,216,230,0.3)';
-      roundRect(ctx, x + 2, y + 2, size - 4, size - 4, 8); ctx.fill();
+      roundRect(ctx, tx, ty, tileW, tileW, cr);
+      ctx.fill();
       if (obstacle.hp <= 1) {
-        ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1; ctx.beginPath();
-        ctx.moveTo(x + size * 0.3, y + size * 0.2); ctx.lineTo(x + size * 0.5, y + size * 0.5);
-        ctx.lineTo(x + size * 0.7, y + size * 0.4); ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(tx + tileW * 0.3, ty + tileW * 0.2);
+        ctx.lineTo(tx + tileW * 0.5, ty + tileW * 0.5);
+        ctx.lineTo(tx + tileW * 0.7, ty + tileW * 0.35);
+        ctx.stroke();
       }
     } else if (obstacle.id === 'stone') {
-      ctx.fillStyle = 'rgba(120,120,120,0.7)'; roundRect(ctx, x + 2, y + 2, size - 4, size - 4, 8); ctx.fill();
-      ctx.font = `${size * 0.4}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.globalAlpha = 0.8; ctx.fillText('🪨', x + size / 2, y + size / 2);
+      ctx.fillStyle = 'rgba(100,100,100,0.75)';
+      roundRect(ctx, tx, ty, tileW, tileW, cr);
+      ctx.fill();
+      ctx.font = `${tileW * 0.45}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.globalAlpha = 0.8;
+      ctx.fillText('🪨', tx + tileW / 2, ty + tileW / 2);
     } else if (obstacle.id === 'vine') {
-      ctx.strokeStyle = 'rgba(34,139,34,0.5)'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(x + 4, y + size / 2);
-      ctx.quadraticCurveTo(x + size / 2, y + 4, x + size - 4, y + size / 2); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(x + size / 2, y + 4);
-      ctx.quadraticCurveTo(x + size - 4, y + size / 2, x + size / 2, y + size - 4); ctx.stroke();
+      ctx.strokeStyle = 'rgba(34,139,34,0.6)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(tx + 4, ty + tileW / 2);
+      ctx.quadraticCurveTo(tx + tileW / 2, ty + 4, tx + tileW - 4, ty + tileW / 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(tx + tileW / 2, ty + 4);
+      ctx.quadraticCurveTo(tx + tileW - 4, ty + tileW / 2, tx + tileW / 2, ty + tileW - 4);
+      ctx.stroke();
     }
     ctx.restore();
   }
@@ -188,8 +260,20 @@ const Gems = (() => {
   function roundRect(ctx, x, y, w, h, r) {
     ctx.beginPath();
     if (ctx.roundRect) { ctx.roundRect(x, y, w, h, r); }
-    else { ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+    else {
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
   }
 
-  return { TYPES, SPECIALS, OBSTACLES, createGem, createObstacle, getSpecialFromMatch, drawGem, drawObstacleOverlay, COUNT: TYPES.length };
+  return {
+    TYPES, SPECIALS, OBSTACLES, FACTION_COLORS,
+    createGem, createObstacle, getSpecialFromMatch,
+    drawGem, drawObstacleOverlay,
+    COUNT: TYPES.length
+  };
 })();
