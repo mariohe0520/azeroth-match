@@ -1,0 +1,143 @@
+/**
+ * animations.css -- Accessibility and enhanced animations
+ * Feature 6: Accessibility (prefers-reduced-motion support)
+ * Feature 3: Rhythm bonus visual feedback
+ * Feature 2: Weather time-of-day body classes
+ */
+
+/* ======== REDUCED MOTION SUPPORT ======== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .combo-flash {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: translate(-50%, -50%) !important;
+  }
+
+  .achievement-toast {
+    animation: none !important;
+    opacity: 1 !important;
+  }
+
+  .timer-urgent {
+    animation: none !important;
+  }
+
+  #gameCanvas {
+    will-change: auto !important;
+  }
+}
+
+/* ======== RHYTHM BONUS FLASH ======== */
+.rhythm-flash {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(ellipse at center, rgba(255,215,0,0.15) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 150;
+  animation: rhythmPulse 0.4s ease-out forwards;
+}
+
+@keyframes rhythmPulse {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.rhythm-note {
+  position: absolute;
+  font-size: 1.2em;
+  pointer-events: none;
+  z-index: 160;
+  animation: noteFloat 1s ease-out forwards;
+}
+
+@keyframes noteFloat {
+  0% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-40px) scale(0.5); }
+}
+
+/* ======== WEATHER BODY CLASSES ======== */
+body.weather-dawn::before {
+  background:
+    radial-gradient(ellipse at 20% 10%, rgba(201,120,60,0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 90%, rgba(200,150,80,0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(255,180,120,0.04) 0%, transparent 60%) !important;
+}
+
+body.weather-day::before {
+  background:
+    radial-gradient(ellipse at 20% 10%, rgba(201,168,76,0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 90%, rgba(74,144,217,0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(179,60,60,0.03) 0%, transparent 60%) !important;
+}
+
+body.weather-sunset::before {
+  background:
+    radial-gradient(ellipse at 20% 30%, rgba(180,80,130,0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 70%, rgba(200,100,50,0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(100,50,120,0.04) 0%, transparent 60%) !important;
+}
+
+body.weather-night::before {
+  background:
+    radial-gradient(ellipse at 20% 10%, rgba(60,80,160,0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 90%, rgba(40,60,120,0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(20,30,80,0.04) 0%, transparent 60%) !important;
+}
+
+/* ======== HINT PULSE ======== */
+.hint-active #boardContainer {
+  position: relative;
+}
+
+/* ======== ACCESSIBILITY FOCUS STYLES ======== */
+.nav-item:focus-visible,
+.btn:focus-visible,
+.action-card:focus-visible,
+.island-card:focus-visible,
+.level-cell:focus-visible,
+.potion-btn:focus-visible,
+.icon-btn:focus-visible,
+.seed-item:focus-visible,
+.seed-option:focus-visible,
+.story-card:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* Ensure canvas is focusable and shows focus ring */
+#gameCanvas:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* Skip to content link (hidden, shown on focus) */
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-card);
+  color: var(--gold);
+  padding: 8px 16px;
+  border-radius: 0 0 8px 8px;
+  z-index: 1000;
+  font-weight: 700;
+  text-decoration: none;
+  transition: top 0.2s;
+}
+
+.skip-link:focus {
+  top: 0;
+}

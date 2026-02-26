@@ -1,0 +1,24 @@
+{
+  "appId": "com.mariohe.azerothMatch",
+  "appName": "艾泽拉斯消消乐",
+  "webDir": "www",
+  "ios": {
+    "allowNavigation": [],
+    "backgroundColor": "#0a0e1a",
+    "contentInset": "always",
+    "preferredContentMode": "mobile",
+    "scheme": "capacitor"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": true,
+      "launchShowDuration": 2000,
+      "backgroundColor": "#0a0e1a",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "overlay": true,
+      "style": "LIGHT"
+    }
+  }
+}

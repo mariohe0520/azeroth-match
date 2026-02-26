@@ -1,0 +1,30 @@
+{
+  "name": "azeroth-match",
+  "version": "1.0.0",
+  "description": "",
+  "main": "sw.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "sync": "cp -R index.html css js manifest.json sw.js www/ && npx cap sync ios",
+    "open:ios": "npx cap open ios",
+    "build:ios": "npx cap sync ios && cd ios/App && xcodebuild -scheme App -destination 'platform=iOS Simulator,name=iPhone 16e' -configuration Debug build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mariohe0520/azeroth-match.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mariohe0520/azeroth-match/issues"
+  },
+  "homepage": "https://github.com/mariohe0520/azeroth-match#readme",
+  "dependencies": {
+    "@capacitor/core": "^8.1.0",
+    "@capacitor/ios": "^8.1.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.1.0"
+  }
+}
