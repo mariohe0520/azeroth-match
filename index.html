@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0a0e1a">
+<title>⚔️ 艾泽拉斯消消乐 — Azeroth Match</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ======== TOP HEADER ======== -->
+  <div class="top-header">
+    <span class="logo">⚔️ 艾泽拉斯消消乐</span>
+    <div class="header-actions">
+      <button class="icon-btn" id="soundToggle">🔊</button>
+    </div>
+  </div>
+
+  <!-- ======== PAGE: HOME ======== -->
+  <div class="page active" id="page-home">
+    <div class="home-hero">
+      <div class="hero-emoji">⚔️</div>
+      <h2>艾泽拉斯消消乐</h2>
+      <p class="subtitle">为了艾泽拉斯！</p>
+    </div>
+
+    <div class="home-stats">
+      <div class="stat-card">
+        <div class="stat-icon">⭐</div>
+        <div class="stat-val" id="homeStars">0</div>
+        <div class="stat-lbl">星星</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">🗺️</div>
+        <div class="stat-val" id="homeLevels">0</div>
+        <div class="stat-lbl">通关</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">🔥</div>
+        <div class="stat-val" id="homeStreak">0</div>
+        <div class="stat-lbl">连续</div>
+      </div>
+    </div>
+
+    <div class="home-actions">
+      <div class="action-card" id="continueCard" onclick="App.navigateTo('adventure')">
+        <span class="action-icon">⚔️</span>
+        <div class="action-info">
+          <span class="action-title">继续征程</span>
+          <span class="action-desc">艾尔文森林 — 第1关</span>
+        </div>
+        <span class="action-arrow">›</span>
+      </div>
+
+      <div class="action-card" id="dailyChallengeCard" onclick="App.startDailyChallenge()">
+        <span class="action-icon">📅</span>
+        <div class="action-info">
+          <span class="action-title">世界任务</span>
+          <span class="action-desc">🎯 今日任务等你来！</span>
+        </div>
+        <span class="action-arrow">›</span>
+      </div>
+
+      <div class="action-card" id="timeAttackCard" onclick="App.startTimeAttack()">
+        <span class="action-icon">⏱️</span>
+        <div class="action-info">
+          <span class="action-title">竞技场</span>
+          <span class="action-desc">⚡ 60秒内冲高分！</span>
+        </div>
+        <span class="action-arrow">›</span>
+      </div>
+
+      <div class="action-card" onclick="App.navigateTo('garden')">
+        <span class="action-icon">🌿</span>
+        <div class="action-info">
+          <span class="action-title">要塞农场</span>
+          <span class="action-desc">采药、种植、培育</span>
+        </div>
+        <span class="action-arrow">›</span>
+      </div>
+    </div>
+
+    <div class="home-footer">
+      为了艾泽拉斯 <span>For Azeroth!</span> ⚔️
+    </div>
+  </div>
+
+  <!-- ======== PAGE: ADVENTURE (MAP) ======== -->
+  <div class="page" id="page-adventure">
+    <h3 style="padding:8px 0;font-weight:700;">🗺️ 艾泽拉斯战役</h3>
+    <div id="islandList" class="island-list"></div>
+  </div>
+
+  <!-- ======== PAGE: GAME ======== -->
+  <div class="page" id="page-game">
+    <div class="game-header">
+      <span class="back-btn" id="gameBackBtn" style="font-size:1.3em;cursor:pointer;">← </span>
+      <span class="game-level-badge" id="gameLevelBadge">🌳 1</span>
+      <span class="game-moves" id="gameMoves">步数: 25</span>
+    </div>
+
+    <div class="game-stats">
+      <div class="game-stat">
+        <div class="gs-label">能量</div>
+        <div class="gs-value" id="gameScore">0</div>
+      </div>
+      <div class="game-stat">
+        <div class="gs-label">目标</div>
+        <div class="gs-value" id="gameTarget">500</div>
+      </div>
+      <div class="game-stat">
+        <div class="gs-label">连击</div>
+        <div class="gs-value" id="gameCombo">0</div>
+      </div>
+    </div>
+
+    <div class="game-progress">
+      <div class="game-progress-bar" id="gameProgressBar" style="width:0%"></div>
+      <div class="game-progress-text" id="gameProgressText">0 / 500</div>
+    </div>
+
+    <div id="boardContainer">
+      <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <div class="game-potions">
+      <button class="potion-btn" id="potionBtn_mana" title="法力药水">
+        💧<span class="potion-count">0</span>
+      </button>
+      <button class="potion-btn" id="potionBtn_frost" title="冰霜药剂">
+        ❄️<span class="potion-count">0</span>
+      </button>
+      <button class="potion-btn" id="potionBtn_fire" title="烈焰药剂">
+        💥<span class="potion-count">0</span>
+      </button>
+      <button class="potion-btn" id="potionBtn_arcane" title="奥术精华药剂">
+        🌈<span class="potion-count">0</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ======== PAGE: GARDEN ======== -->
+  <div class="page" id="page-garden">
+    <div id="gardenContainer"></div>
+  </div>
+
+  <!-- ======== PAGE: STORY ======== -->
+  <div class="page" id="page-story">
+    <div id="storyContainer"></div>
+  </div>
+
+  <!-- ======== PAGE: POTION ======== -->
+  <div class="page" id="page-potion">
+    <h3 style="padding:8px 0;font-weight:700;">⚗️ 炼金工坊</h3>
+    <div id="potionContainer"></div>
+  </div>
+
+  <!-- ======== PAGE: ACHIEVEMENTS ======== -->
+  <div class="page" id="page-achievement">
+    <div id="achievementContainer"></div>
+  </div>
+
+</div>
+
+<!-- ======== BOTTOM NAVIGATION ======== -->
+<nav class="bottom-nav">
+  <button class="nav-item active" data-page="home">
+    <span class="nav-icon">🏠</span>
+    主页
+  </button>
+  <button class="nav-item" data-page="adventure">
+    <span class="nav-icon">⚔️</span>
+    战役
+  </button>
+  <button class="nav-item" data-page="story">
+    <span class="nav-icon">📖</span>
+    编年史
+  </button>
+  <button class="nav-item" data-page="garden">
+    <span class="nav-icon">🌿</span>
+    农场
+  </button>
+  <button class="nav-item" data-page="achievement">
+    <span class="nav-icon">🏆</span>
+    成就
+  </button>
+</nav>
+
+<!-- ======== MODALS ======== -->
+
+<!-- Level Complete -->
+<div class="modal-overlay" id="completeModal">
+  <div class="modal-content">
+    <div class="modal-emoji" id="completeEmoji">⚔️</div>
+    <div class="modal-title" id="completeTitle">胜利！</div>
+    <div class="modal-stars" id="completeStars">⭐⭐⭐</div>
+    <p class="modal-text" id="completeText">任务完成！</p>
+    <p class="modal-text text-accent" id="completeSeedInfo">🌿 获得草药种子！</p>
+    <div class="modal-buttons">
+      <button class="btn btn-primary" id="nextLevelBtn">下一关 →</button>
+      <button class="btn btn-secondary" onclick="App.hideModal('completeModal'); App.navigateTo('home');">主页</button>
+    </div>
+  </div>
+</div>
+
+<!-- Level Fail -->
+<div class="modal-overlay" id="failModal">
+  <div class="modal-content">
+    <div class="modal-emoji">💪</div>
+    <div class="modal-title">差一点！</div>
+    <p class="modal-text">勇者不会放弃，再来一次！</p>
+    <div class="modal-buttons">
+      <button class="btn btn-primary" id="retryBtn">再战一次 ⚔️</button>
+      <button class="btn btn-secondary" id="failHomeBtn">主页</button>
+    </div>
+  </div>
+</div>
+
+<!-- Quit Confirmation -->
+<div class="modal-overlay" id="quitModal">
+  <div class="modal-content">
+    <div class="modal-emoji">🤔</div>
+    <div class="modal-title">确定撤退？</div>
+    <p class="modal-text">当前进度将不会保存</p>
+    <div class="modal-buttons">
+      <button class="btn btn-danger" onclick="App.hideModal('quitModal'); App.navigateTo('home');">撤退</button>
+      <button class="btn btn-secondary" onclick="App.hideModal('quitModal');">继续</button>
+    </div>
+  </div>
+</div>
+
+<!-- Seed Picker -->
+<div class="modal-overlay" id="seedModal">
+  <div class="modal-content">
+    <div class="modal-title">🌰 选择种子</div>
+    <div id="seedPickerContent"></div>
+    <div class="modal-buttons mt-8">
+      <button class="btn btn-secondary" onclick="App.hideModal('seedModal')">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- Dialogue -->
+<div class="modal-overlay" id="dialogueOverlay">
+  <div class="dialogue-box" id="dialogueBox">
+    <div class="dialogue-portrait" id="dialoguePortrait">⚔️</div>
+    <div class="dialogue-speaker" id="dialogueSpeaker">勇者</div>
+    <div class="dialogue-text" id="dialogueText">...</div>
+    <div class="dialogue-tap">点击继续 ›</div>
+  </div>
+</div>
+
+<!-- Tutorial -->
+<div class="modal-overlay" id="tutorialOverlay">
+  <div class="modal-content">
+    <div class="modal-emoji">⚔️</div>
+    <div class="modal-title">欢迎来到艾泽拉斯！</div>
+    <div class="tutorial-step">
+      1️⃣ 点击一个魔法宝石选中它<br>
+      2️⃣ 再点击相邻的宝石交换<br>
+      3️⃣ 三个相同的消除释放魔力！<br>
+      4️⃣ 在步数用完前达到能量目标 ⚡<br>
+      5️⃣ 通关后获得草药种子种在农场 🌿
+    </div>
+    <div class="tutorial-gems" id="tutorialGems"></div>
+    <button class="btn btn-primary btn-block" id="startGameBtn">为了艾泽拉斯！⚔️</button>
+  </div>
+</div>
+
+<!-- ======== SCRIPTS ======== -->
+<script src="js/audio.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/gems.js"></script>
+<script src="js/board.js"></script>
+<script src="js/campaign.js"></script>
+<script src="js/garden.js"></script>
+<script src="js/potion.js"></script>
+<script src="js/daily.js"></script>
+<script src="js/story.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>
