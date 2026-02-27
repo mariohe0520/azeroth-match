@@ -1823,7 +1823,7 @@ const Board = (() => {
       for (let c = 0; c < cols; c++) {
         const x = c * cellSize + padding;
         const y = r * cellSize + padding;
-        ctx.fillStyle = (r + c) % 2 === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)';
+        ctx.fillStyle = (r + c) % 2 === 0 ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.05)';
         roundRect(ctx, x + 1, y + 1, cellSize - 2, cellSize - 2, 8);
         ctx.fill();
       }
