@@ -167,9 +167,10 @@ const Campaign = (() => {
     const island = ISLANDS[Math.min(islandIndex, ISLANDS.length - 1)];
     const isBoss = localLevel === 14;
 
-    const difficulty = 1 + globalIndex * 0.08;
-    const baseScore = Math.round((400 + globalIndex * 80) * difficulty * 0.5);
-    const baseMoves = Math.max(12, 28 - Math.floor(globalIndex * 0.08));
+    // Smoother difficulty curve: gentler at start, steeper later
+    const difficulty = 1 + globalIndex * 0.06 + (islandIndex >= 3 ? (islandIndex - 2) * 0.04 : 0);
+    const baseScore = Math.round((350 + globalIndex * 60) * difficulty * 0.5);
+    const baseMoves = Math.max(14, 30 - Math.floor(globalIndex * 0.07));
 
     let objectives = null;
     let obstacles = [];
@@ -179,28 +180,108 @@ const Campaign = (() => {
       const boss = BOSSES[island.id];
       bossHp = boss.hp;
       objectives = { type: 'boss', bossName: boss.name, bossEmoji: boss.emoji };
-    } else if (localLevel % 5 === 3) {
-      const gemIdx = localLevel % Gems.COUNT;
-      objectives = { type: 'collect', items: [{ gemType: Gems.TYPES[gemIdx].id, count: Math.min(20, 8 + Math.floor(globalIndex * 0.3)) }] };
-    } else if (localLevel % 5 === 4 && islandIndex >= 2) {
-      obstacles = generateObstacles(islandIndex, localLevel);
-      objectives = { type: 'clear' };
+    } else if (islandIndex === 0) {
+      // First island: more variety in objectives to teach mechanics
+      if (localLevel === 0 || localLevel === 1) {
+        // Easy intro: score-based with lower target
+        objectives = { type: 'score' };
+      } else if (localLevel === 2) {
+        // Introduce collection mechanic early
+        objectives = { type: 'collect', items: [{ gemType: Gems.TYPES[0].id, count: 6 }] };
+      } else if (localLevel === 3) {
+        objectives = { type: 'score' };
+      } else if (localLevel === 4) {
+        // Collect two different types
+        objectives = { type: 'collect', items: [
+          { gemType: Gems.TYPES[1].id, count: 5 },
+          { gemType: Gems.TYPES[2].id, count: 5 }
+        ]};
+      } else if (localLevel === 5) {
+        objectives = { type: 'score' };
+      } else if (localLevel === 6) {
+        // Timed level introduction
+        objectives = { type: 'score' };
+      } else if (localLevel === 7) {
+        objectives = { type: 'collect', items: [{ gemType: Gems.TYPES[3].id, count: 10 }] };
+      } else if (localLevel === 8 || localLevel === 9) {
+        objectives = { type: 'score' };
+      } else if (localLevel === 10) {
+        // Introduce ice obstacles in island 1
+        obstacles = [
+          { row: 2, col: 2, type: 'ice', hp: 2 },
+          { row: 2, col: 4, type: 'ice', hp: 2 },
+          { row: 4, col: 3, type: 'ice', hp: 2 }
+        ];
+        objectives = { type: 'clear' };
+      } else if (localLevel === 11 || localLevel === 12) {
+        objectives = { type: 'score' };
+      } else if (localLevel === 13) {
+        objectives = { type: 'collect', items: [
+          { gemType: Gems.TYPES[0].id, count: 8 },
+          { gemType: Gems.TYPES[4].id, count: 8 }
+        ]};
+      } else {
+        objectives = { type: 'score' };
+      }
+    } else if (islandIndex === 1) {
+      // Second island: introduce more variety
+      if (localLevel % 5 === 2) {
+        const gem1Idx = localLevel % Gems.COUNT;
+        const gem2Idx = (localLevel + 2) % Gems.COUNT;
+        objectives = { type: 'collect', items: [
+          { gemType: Gems.TYPES[gem1Idx].id, count: Math.min(15, 6 + localLevel) },
+          { gemType: Gems.TYPES[gem2Idx].id, count: Math.min(12, 5 + localLevel) }
+        ]};
+      } else if (localLevel % 5 === 4) {
+        obstacles = generateObstacles(islandIndex, localLevel);
+        objectives = { type: 'clear' };
+      } else if (localLevel === 6) {
+        objectives = { type: 'score' }; // timed
+      } else {
+        objectives = { type: 'score' };
+      }
     } else {
-      objectives = { type: 'score' };
+      // Islands 3+: original variety logic
+      if (localLevel % 5 === 3) {
+        const gemIdx = localLevel % Gems.COUNT;
+        const items = [{ gemType: Gems.TYPES[gemIdx].id, count: Math.min(20, 8 + Math.floor(globalIndex * 0.3)) }];
+        // Later islands: sometimes require collecting two types
+        if (islandIndex >= 4 && localLevel % 3 === 0) {
+          const gem2Idx = (gemIdx + 3) % Gems.COUNT;
+          items.push({ gemType: Gems.TYPES[gem2Idx].id, count: Math.min(15, 6 + Math.floor(globalIndex * 0.2)) });
+        }
+        objectives = { type: 'collect', items };
+      } else if (localLevel % 5 === 4) {
+        obstacles = generateObstacles(islandIndex, localLevel);
+        objectives = { type: 'clear' };
+      } else {
+        objectives = { type: 'score' };
+      }
     }
 
+    // Gem count: gradual increase
     let gemCount = 7;
-    if (islandIndex <= 1 && localLevel < 3) gemCount = 5;
+    if (islandIndex === 0 && localLevel < 3) gemCount = 5;
+    else if (islandIndex === 0) gemCount = 5;
+    else if (islandIndex === 1 && localLevel < 5) gemCount = 5;
     else if (islandIndex <= 2) gemCount = 6;
 
+    // Grid size: start smaller for learning
     let gridRows = 8, gridCols = 8;
-    if (islandIndex === 0 && localLevel < 5) { gridRows = 7; gridCols = 7; }
+    if (islandIndex === 0 && localLevel < 3) { gridRows = 6; gridCols = 6; }
+    else if (islandIndex === 0 && localLevel < 8) { gridRows = 7; gridCols = 7; }
+    else if (islandIndex === 0) { gridRows = 7; gridCols = 7; }
+
+    // Timed levels: appear more gradually
+    let timeLimit = -1;
+    if (islandIndex === 0 && localLevel === 6) timeLimit = 90; // Generous intro timer
+    else if (islandIndex >= 1 && localLevel % 7 === 6) timeLimit = 60 + islandIndex * 5;
 
     return {
       globalIndex, islandIndex, localLevel, island, isBoss,
       rows: gridRows, cols: gridCols, targetScore: baseScore,
-      moves: isBoss ? baseMoves + 5 : baseMoves,
-      timeLimit: localLevel % 7 === 6 ? 60 + islandIndex * 5 : -1,
+      moves: isBoss ? baseMoves + 8 : baseMoves,
+      timeLimit,
       gemCount, objectives, obstacles, bossHp, mechanic: island.mechanic
     };
   }

@@ -242,9 +242,9 @@ const Board = (() => {
   function updateCanvasSize() {
     const container = document.getElementById('boardContainer');
     if (!container) return;
-    const maxW = container.clientWidth - 16;
-    cellSize = Math.floor(Math.min(52, (maxW - padding * 2) / cols));
-    cellSize = Math.max(40, cellSize); // minimum 40px
+    const maxW = container.clientWidth - 8;
+    cellSize = Math.floor(Math.min(60, (maxW - padding * 2) / cols));
+    cellSize = Math.max(46, cellSize); // minimum 46px for better visibility
     const w = cols * cellSize + padding * 2;
     const h = rows * cellSize + padding * 2;
     canvas.width = w;
@@ -1062,11 +1062,45 @@ const Board = (() => {
 
   // ======== MATCH CHAIN PROCESSING ========
 
+  function validateAndRepairBoard() {
+    const numTypes = levelConfig ? (levelConfig.gemCount || Gems.COUNT) : Gems.COUNT;
+    let repaired = false;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const cell = grid[r][c];
+        // Skip stone obstacles (type === null is expected for stones)
+        if (cell && cell.obstacle && cell.obstacle.id === 'stone') continue;
+        // Fix null cells or cells with null/undefined type
+        if (!cell || cell.type === null || cell.type === undefined) {
+          grid[r][c] = Gems.createGem(Math.floor(Math.random() * numTypes));
+          repaired = true;
+        }
+        // Always ensure cellVisual is valid
+        if (!cellVisual[r] || !cellVisual[r][c]) {
+          if (!cellVisual[r]) cellVisual[r] = [];
+          cellVisual[r][c] = { x: c * cellSize + padding, y: r * cellSize + padding, scale: 1, alpha: 1 };
+        }
+        if (grid[r][c] && grid[r][c].type !== null) {
+          if (cellVisual[r][c].scale <= 0) cellVisual[r][c].scale = 1;
+          if (cellVisual[r][c].alpha <= 0) cellVisual[r][c].alpha = 1;
+          cellVisual[r][c].x = c * cellSize + padding;
+          cellVisual[r][c].y = r * cellSize + padding;
+        }
+      }
+    }
+    if (repaired) {
+      console.warn('Board validated and repaired: filled null cells');
+    }
+    return repaired;
+  }
+
   function processMatchChain() {
     const matchGroups = findMatchGroups();
     const allMatches = findMatches();
 
     if (allMatches.length === 0) {
+      // Validate the board is fully populated before going idle
+      validateAndRepairBoard();
       // Check for no valid moves -> reshuffle
       if (!hasValidMoves() && phase !== 'gameover') {
         reshuffleBoard();
@@ -1097,14 +1131,21 @@ const Board = (() => {
     allMatches.forEach(cell => {
       const gem = grid[cell.row][cell.col];
       if (gem && gem.type !== null) {
-        const typeId = Gems.TYPES[gem.type].id;
-        if (collectProgress[typeId] !== undefined) collectProgress[typeId]++;
-        // Add potion ingredients
-        const data = Storage.get();
-        const ingredientMap = ['holy', 'fire', 'arcane', 'shadow', 'nature', 'frost', 'fel'];
-        const ingr = ingredientMap[gem.type] || 'holy';
-        data.potions.ingredients[ingr] = (data.potions.ingredients[ingr] || 0) + 1;
-        data.stats.totalGems++;
+        try {
+          const typeId = Gems.TYPES[gem.type] ? Gems.TYPES[gem.type].id : null;
+          if (typeId && collectProgress[typeId] !== undefined) collectProgress[typeId]++;
+          // Add potion ingredients
+          const data = Storage.get();
+          if (data && data.potions && data.potions.ingredients) {
+            const ingredientMap = ['holy', 'fire', 'arcane', 'shadow', 'nature', 'frost', 'fel'];
+            const ingr = ingredientMap[gem.type] || 'holy';
+            data.potions.ingredients[ingr] = (data.potions.ingredients[ingr] || 0) + 1;
+          }
+          if (data && data.stats) data.stats.totalGems++;
+        } catch (e) {
+          // Prevent storage errors from crashing the match chain
+          console.warn('Storage update error during match processing:', e);
+        }
       }
     });
 
@@ -1335,6 +1376,8 @@ const Board = (() => {
             grid[r][c] = null;
             const fromY = cellVisual[r][c].y;
             cellVisual[emptyRow][c].x = c * cellSize + padding;
+            cellVisual[emptyRow][c].scale = 1;
+            cellVisual[emptyRow][c].alpha = 1;
             drops.push({ row: emptyRow, col: c, fromY });
           }
           emptyRow--;
@@ -1352,6 +1395,26 @@ const Board = (() => {
           cellVisual[r][c].scale = 1;
           cellVisual[r][c].alpha = 1;
           drops.push({ row: r, col: c, fromY });
+        }
+      }
+    }
+
+    // Safety pass: check ALL cells and fill any remaining nulls
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (grid[r][c] === null) {
+          const numTypes = levelConfig ? (levelConfig.gemCount || Gems.COUNT) : Gems.COUNT;
+          grid[r][c] = Gems.createGem(Math.floor(Math.random() * numTypes));
+          cellVisual[r][c].x = c * cellSize + padding;
+          cellVisual[r][c].y = r * cellSize + padding;
+          cellVisual[r][c].scale = 1;
+          cellVisual[r][c].alpha = 1;
+          drops.push({ row: r, col: c, fromY: -(Math.random() * 2 + 1) * cellSize });
+        }
+        // Ensure all non-null gems have valid visual state
+        if (grid[r][c] && grid[r][c].type !== null) {
+          if (cellVisual[r][c].scale <= 0) cellVisual[r][c].scale = 1;
+          if (cellVisual[r][c].alpha <= 0) cellVisual[r][c].alpha = 1;
         }
       }
     }
@@ -1549,6 +1612,7 @@ const Board = (() => {
     constructor(cells, duration, onDone) {
       this.cells = cells; this.duration = duration; this.elapsed = 0;
       this.onDone = onDone; this.particlesSpawned = false;
+      this.flashAlpha = 1.0; // bright flash at start of clear
     }
     update(dt) {
       this.elapsed += dt;
@@ -1558,9 +1622,27 @@ const Board = (() => {
         this.cells.forEach(({ row, col }) => {
           const v = cellVisual[row][col];
           if (grid[row][col] && grid[row][col].type !== null) {
-            spawnParticles(v.x + cellSize / 2, v.y + cellSize / 2, grid[row][col].type, 8);
+            spawnParticles(v.x + cellSize / 2, v.y + cellSize / 2, grid[row][col].type, 10);
           }
         });
+      }
+      // Bright flash effect at match location
+      this.flashAlpha = Math.max(0, 1.0 - t * 3);
+      if (this.flashAlpha > 0 && ctx) {
+        ctx.save();
+        ctx.globalAlpha = this.flashAlpha * 0.4;
+        this.cells.forEach(({ row, col }) => {
+          const v = cellVisual[row][col];
+          const cx = v.x + cellSize / 2;
+          const cy = v.y + cellSize / 2;
+          const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, cellSize * 0.8);
+          grad.addColorStop(0, 'rgba(255,255,255,0.9)');
+          grad.addColorStop(0.4, 'rgba(255,220,100,0.5)');
+          grad.addColorStop(1, 'rgba(255,200,50,0)');
+          ctx.fillStyle = grad;
+          ctx.fillRect(v.x - cellSize * 0.3, v.y - cellSize * 0.3, cellSize * 1.6, cellSize * 1.6);
+        });
+        ctx.restore();
       }
       this.cells.forEach(({ row, col }) => {
         cellVisual[row][col].scale = 1 - t;
@@ -1592,7 +1674,10 @@ const Board = (() => {
       });
       if (this.elapsed >= this.duration) {
         this.drops.forEach(d => {
+          cellVisual[d.row][d.col].x = d.col * cellSize + padding;
           cellVisual[d.row][d.col].y = d.row * cellSize + padding;
+          cellVisual[d.row][d.col].scale = 1;
+          cellVisual[d.row][d.col].alpha = 1;
         });
         if (this.onDone) this.onDone();
         return false;
@@ -1799,6 +1884,52 @@ const Board = (() => {
     roundRect(ctx, 0, 0, w, h, 16);
     ctx.fill();
 
+    // Decorative board frame with golden border
+    ctx.save();
+    ctx.strokeStyle = 'rgba(201,168,76,0.25)';
+    ctx.lineWidth = 2;
+    roundRect(ctx, 1, 1, w - 2, h - 2, 15);
+    ctx.stroke();
+    // Inner subtle glow line
+    ctx.strokeStyle = 'rgba(201,168,76,0.08)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, 3, 3, w - 6, h - 6, 13);
+    ctx.stroke();
+    ctx.restore();
+
+    // Corner decorations
+    if (!prefersReducedMotion) {
+      ctx.save();
+      const cornerGlow = 0.12 + 0.05 * Math.sin((timestamp || 0) * 0.002);
+      ctx.globalAlpha = cornerGlow;
+      const cornerR = 20;
+      // Top-left
+      const cGrad1 = ctx.createRadialGradient(0, 0, 0, 0, 0, cornerR);
+      cGrad1.addColorStop(0, 'rgba(201,168,76,0.6)');
+      cGrad1.addColorStop(1, 'rgba(201,168,76,0)');
+      ctx.fillStyle = cGrad1;
+      ctx.fillRect(0, 0, cornerR, cornerR);
+      // Top-right
+      const cGrad2 = ctx.createRadialGradient(w, 0, 0, w, 0, cornerR);
+      cGrad2.addColorStop(0, 'rgba(201,168,76,0.6)');
+      cGrad2.addColorStop(1, 'rgba(201,168,76,0)');
+      ctx.fillStyle = cGrad2;
+      ctx.fillRect(w - cornerR, 0, cornerR, cornerR);
+      // Bottom-left
+      const cGrad3 = ctx.createRadialGradient(0, h, 0, 0, h, cornerR);
+      cGrad3.addColorStop(0, 'rgba(201,168,76,0.6)');
+      cGrad3.addColorStop(1, 'rgba(201,168,76,0)');
+      ctx.fillStyle = cGrad3;
+      ctx.fillRect(0, h - cornerR, cornerR, cornerR);
+      // Bottom-right
+      const cGrad4 = ctx.createRadialGradient(w, h, 0, w, h, cornerR);
+      cGrad4.addColorStop(0, 'rgba(201,168,76,0.6)');
+      cGrad4.addColorStop(1, 'rgba(201,168,76,0)');
+      ctx.fillStyle = cGrad4;
+      ctx.fillRect(w - cornerR, h - cornerR, cornerR, cornerR);
+      ctx.restore();
+    }
+
     // Feature 2: Night stars
     if (weatherPhase === 'night' && !prefersReducedMotion) {
       ctx.save();
@@ -1818,14 +1949,20 @@ const Board = (() => {
     // Feature 2: Weather particles behind gems
     renderWeatherParticles(ctx);
 
-    // Grid cell backgrounds
+    // Grid cell backgrounds with subtle inner glow
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const x = c * cellSize + padding;
         const y = r * cellSize + padding;
-        ctx.fillStyle = (r + c) % 2 === 0 ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.05)';
+        const isLight = (r + c) % 2 === 0;
+        ctx.fillStyle = isLight ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.05)';
         roundRect(ctx, x + 1, y + 1, cellSize - 2, cellSize - 2, 8);
         ctx.fill();
+        // Subtle inner border for depth
+        ctx.strokeStyle = isLight ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)';
+        ctx.lineWidth = 0.5;
+        roundRect(ctx, x + 1.5, y + 1.5, cellSize - 3, cellSize - 3, 7);
+        ctx.stroke();
       }
     }
 
