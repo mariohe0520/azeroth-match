@@ -236,7 +236,7 @@
     <p class="modal-text">当前进度将不会保存</p>
     <div class="modal-buttons">
       <button class="btn btn-danger" onclick="App.hideModal('quitModal'); App.navigateTo('home');">撤退</button>
-      <button class="btn btn-secondary" onclick="App.hideModal('quitModal');">继续</button>
+      <button class="btn btn-secondary" onclick="App.hideModal('quitModal'); Board.phase = 'idle';">继续</button>
     </div>
   </div>
 </div>

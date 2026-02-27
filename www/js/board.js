@@ -101,6 +101,17 @@ const Board = (() => {
 
     if (config) applyConfig(config);
     setupInput();
+
+    let resizeTimeout = null;
+    window.addEventListener('resize', () => {
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        if (phase !== 'animating') {
+          updateCanvasSize();
+          initCellVisual();
+        }
+      }, 200);
+    });
   }
 
   function applyConfig(config) {
@@ -109,7 +120,7 @@ const Board = (() => {
     cols = config.cols || 8;
     targetScore = config.targetScore || 500;
     movesLeft = config.moves || 25;
-    timeLeft = config.timeLimit || -1;
+    timeLeft = (config.timeLimit !== undefined && config.timeLimit !== null && config.timeLimit >= 0) ? config.timeLimit : -1;
     objectives = config.objectives || null;
     bossHp = config.bossHp || 0;
     bossMaxHp = bossHp;
@@ -241,10 +252,10 @@ const Board = (() => {
 
   function updateCanvasSize() {
     const container = document.getElementById('boardContainer');
-    if (!container) return;
-    const maxW = container.clientWidth - 16;
-    cellSize = Math.floor(Math.min(52, (maxW - padding * 2) / cols));
-    cellSize = Math.max(40, cellSize); // minimum 40px
+    if (!container || !canvas) return;
+    const maxW = container.clientWidth - 8;
+    cellSize = Math.floor(Math.min(60, (maxW - padding * 2) / cols));
+    cellSize = Math.max(46, cellSize); // minimum 46px for better visibility
     const w = cols * cellSize + padding * 2;
     const h = rows * cellSize + padding * 2;
     canvas.width = w;
@@ -1034,46 +1045,99 @@ const Board = (() => {
     swapGridData(cell1.row, cell1.col, cell2.row, cell2.col);
 
     const anim = new SwapAnim(cell1.row, cell1.col, cell2.row, cell2.col, 0.2, () => {
-      resetVisual(cell1.row, cell1.col);
-      resetVisual(cell2.row, cell2.col);
+      try {
+        resetVisual(cell1.row, cell1.col);
+        resetVisual(cell2.row, cell2.col);
 
-      const matches = findMatches();
-      if (matches.length === 0) {
-        Audio.playInvalid();
-        swapGridData(cell1.row, cell1.col, cell2.row, cell2.col);
-        const backAnim = new SwapAnim(cell1.row, cell1.col, cell2.row, cell2.col, 0.2, () => {
-          resetVisual(cell1.row, cell1.col);
-          resetVisual(cell2.row, cell2.col);
+        const matches = findMatches();
+        if (matches.length === 0) {
+          Audio.playInvalid();
+          swapGridData(cell1.row, cell1.col, cell2.row, cell2.col);
+          const backAnim = new SwapAnim(cell1.row, cell1.col, cell2.row, cell2.col, 0.2, () => {
+            resetVisual(cell1.row, cell1.col);
+            resetVisual(cell2.row, cell2.col);
+            combo = 0;
+            phase = 'idle';
+          });
+          animations.push(backAnim);
+        } else {
+          if (movesLeft > 0) movesLeft--;
           combo = 0;
-          phase = 'idle';
-        });
-        animations.push(backAnim);
-      } else {
-        if (movesLeft > 0) movesLeft--;
-        combo = 0;
-        processMatchChain();
+          processMatchChain();
+        }
+        selected = null;
+        hoverCell = null;
+        if (onScoreChange) {
+          try { onScoreChange(getState()); } catch (e) {}
+        }
+      } catch (e) {
+        console.error('[AzerothMatch] Move processing error:', e);
+        selected = null;
+        hoverCell = null;
+        phase = 'idle';
+        validateAndRepairBoard();
       }
-      selected = null;
-      hoverCell = null;
-      if (onScoreChange) onScoreChange(getState());
     });
     animations.push(anim);
   }
 
   // ======== MATCH CHAIN PROCESSING ========
 
+  function validateAndRepairBoard() {
+    const numTypes = levelConfig ? (levelConfig.gemCount || Gems.COUNT) : Gems.COUNT;
+    let repaired = false;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const cell = grid[r][c];
+        // Skip stone obstacles (type === null is expected for stones)
+        if (cell && cell.obstacle && cell.obstacle.id === 'stone') continue;
+        // Fix null cells or cells with null/undefined type
+        if (!cell || cell.type === null || cell.type === undefined) {
+          grid[r][c] = Gems.createGem(Math.floor(Math.random() * numTypes));
+          repaired = true;
+        }
+        // Always ensure cellVisual is valid
+        if (!cellVisual[r] || !cellVisual[r][c]) {
+          if (!cellVisual[r]) cellVisual[r] = [];
+          cellVisual[r][c] = { x: c * cellSize + padding, y: r * cellSize + padding, scale: 1, alpha: 1 };
+        }
+        if (grid[r][c] && grid[r][c].type !== null) {
+          if (cellVisual[r][c].scale <= 0) cellVisual[r][c].scale = 1;
+          if (cellVisual[r][c].alpha <= 0) cellVisual[r][c].alpha = 1;
+          cellVisual[r][c].x = c * cellSize + padding;
+          cellVisual[r][c].y = r * cellSize + padding;
+        }
+      }
+    }
+    if (repaired) {
+      console.warn('Board validated and repaired: filled null cells');
+    }
+    return repaired;
+  }
+
   function processMatchChain() {
+    if (phase === 'gameover') return;
     const matchGroups = findMatchGroups();
     const allMatches = findMatches();
 
     if (allMatches.length === 0) {
-      // Check for no valid moves -> reshuffle
-      if (!hasValidMoves() && phase !== 'gameover') {
-        reshuffleBoard();
+      // Validate the board is fully populated before going idle
+      try {
+        validateAndRepairBoard();
+        // Check for no valid moves -> reshuffle
+        if (!hasValidMoves() && phase !== 'gameover') {
+          reshuffleBoard();
+        }
+        checkGameState();
+      } catch (e) {
+        console.error('[AzerothMatch] End-of-chain validation error:', e);
       }
-      checkGameState();
       if (phase !== 'gameover') phase = 'idle';
-      if (onMoveComplete) onMoveComplete(getState());
+      if (onMoveComplete) {
+        try { onMoveComplete(getState()); } catch (e) {
+          console.warn('[AzerothMatch] onMoveComplete callback error:', e);
+        }
+      }
       return;
     }
 
@@ -1097,14 +1161,21 @@ const Board = (() => {
     allMatches.forEach(cell => {
       const gem = grid[cell.row][cell.col];
       if (gem && gem.type !== null) {
-        const typeId = Gems.TYPES[gem.type].id;
-        if (collectProgress[typeId] !== undefined) collectProgress[typeId]++;
-        // Add potion ingredients
-        const data = Storage.get();
-        const ingredientMap = ['holy', 'fire', 'arcane', 'shadow', 'nature', 'frost', 'fel'];
-        const ingr = ingredientMap[gem.type] || 'holy';
-        data.potions.ingredients[ingr] = (data.potions.ingredients[ingr] || 0) + 1;
-        data.stats.totalGems++;
+        try {
+          const typeId = Gems.TYPES[gem.type] ? Gems.TYPES[gem.type].id : null;
+          if (typeId && collectProgress[typeId] !== undefined) collectProgress[typeId]++;
+          // Add potion ingredients
+          const data = Storage.get();
+          if (data && data.potions && data.potions.ingredients) {
+            const ingredientMap = ['holy', 'fire', 'arcane', 'shadow', 'nature', 'frost', 'fel'];
+            const ingr = ingredientMap[gem.type] || 'holy';
+            data.potions.ingredients[ingr] = (data.potions.ingredients[ingr] || 0) + 1;
+          }
+          if (data && data.stats) data.stats.totalGems++;
+        } catch (e) {
+          // Prevent storage errors from crashing the match chain
+          console.warn('Storage update error during match processing:', e);
+        }
       }
     });
 
@@ -1114,33 +1185,68 @@ const Board = (() => {
       bossHp = Math.max(0, bossHp - dmg);
     }
 
+    // Merge overlapping match groups of same type for L/T shape detection
+    const mergedGroups = [];
+    const groupUsed = new Array(matchGroups.length).fill(false);
+    for (let i = 0; i < matchGroups.length; i++) {
+      if (groupUsed[i]) continue;
+      const merged = { cells: [...matchGroups[i].cells], dir: matchGroups[i].dir, type: matchGroups[i].type };
+      groupUsed[i] = true;
+      for (let j = i + 1; j < matchGroups.length; j++) {
+        if (groupUsed[j] || matchGroups[j].type !== merged.type) continue;
+        const overlaps = matchGroups[j].cells.some(c2 =>
+          merged.cells.some(c1 => c1.row === c2.row && c1.col === c2.col)
+        );
+        if (overlaps) {
+          matchGroups[j].cells.forEach(c2 => {
+            if (!merged.cells.some(c1 => c1.row === c2.row && c1.col === c2.col)) {
+              merged.cells.push(c2);
+            }
+          });
+          if (matchGroups[j].dir !== merged.dir) merged.dir = 'cross';
+          groupUsed[j] = true;
+        }
+      }
+      mergedGroups.push(merged);
+    }
+
     // Check for special gem creation
-    matchGroups.forEach(group => {
-      const special = Gems.getSpecialFromMatch(group.cells, group.dir);
-      if (special && group.cells.length > 0) {
-        const center = group.cells[Math.floor(group.cells.length / 2)];
-        center._becomeSpecial = { special, type: group.type };
+    mergedGroups.forEach(group => {
+      try {
+        const special = Gems.getSpecialFromMatch(group.cells, group.dir);
+        if (special && group.cells.length > 0) {
+          const center = group.cells[Math.floor(group.cells.length / 2)];
+          center._becomeSpecial = { special, type: group.type };
+        }
+      } catch (e) {
+        console.warn('[AzerothMatch] Special gem creation error:', e);
       }
     });
 
     // Process special gem activations
     const extraClears = [];
     allMatches.forEach(cell => {
-      const gem = grid[cell.row][cell.col];
-      if (gem && gem.special) {
-        const activated = activateSpecial(gem, cell.row, cell.col);
-        activated.forEach(ac => {
-          if (!allMatches.find(m => m.row === ac.row && m.col === ac.col)) {
-            extraClears.push(ac);
+      try {
+        const gem = grid[cell.row] && grid[cell.row][cell.col];
+        if (gem && gem.special) {
+          const activated = activateSpecial(gem, cell.row, cell.col);
+          if (activated && activated.length) {
+            activated.forEach(ac => {
+              if (!allMatches.find(m => m.row === ac.row && m.col === ac.col)) {
+                extraClears.push(ac);
+              }
+            });
           }
-        });
+        }
+      } catch (e) {
+        console.warn('[AzerothMatch] Special activation error:', e);
       }
     });
 
     const allClears = [...allMatches, ...extraClears];
 
     // Transfer _becomeSpecial from matchGroup cells to allClears by position
-    matchGroups.forEach(group => {
+    mergedGroups.forEach(group => {
       group.cells.forEach(cell => {
         if (cell._becomeSpecial) {
           const target = allClears.find(c => c.row === cell.row && c.col === cell.col);
@@ -1218,24 +1324,37 @@ const Board = (() => {
     const clearAnim = new ClearAnim(allClears, 0.25, () => {
       // Create special gems before clearing
       allClears.forEach(cell => {
-        if (cell._becomeSpecial) {
-          grid[cell.row][cell.col] = Gems.createGem(cell._becomeSpecial.type);
-          grid[cell.row][cell.col].special = cell._becomeSpecial.special;
-          cellVisual[cell.row][cell.col].scale = 1;
-          cellVisual[cell.row][cell.col].alpha = 1;
-        } else {
-          const gem = grid[cell.row][cell.col];
-          if (gem && !(gem.obstacle && gem.obstacle.id === 'stone')) {
-            grid[cell.row][cell.col] = null;
+        try {
+          if (cell._becomeSpecial) {
+            grid[cell.row][cell.col] = Gems.createGem(cell._becomeSpecial.type);
+            grid[cell.row][cell.col].special = cell._becomeSpecial.special;
+            if (cellVisual[cell.row] && cellVisual[cell.row][cell.col]) {
+              cellVisual[cell.row][cell.col].scale = 1;
+              cellVisual[cell.row][cell.col].alpha = 1;
+            }
+          } else {
+            const gem = grid[cell.row] && grid[cell.row][cell.col];
+            if (gem && !(gem.obstacle && gem.obstacle.id === 'stone')) {
+              grid[cell.row][cell.col] = null;
+            }
           }
+        } catch (e) {
+          // If clearing a cell fails, just null it
+          try { grid[cell.row][cell.col] = null; } catch (e2) {}
         }
       });
 
-      const drops = dropAndFill();
-      if (drops.length > 0) {
-        animations.push(new DropAnim(drops, 0.3, () => processMatchChain()));
-      } else {
-        processMatchChain();
+      try {
+        const drops = dropAndFill();
+        if (drops.length > 0) {
+          animations.push(new DropAnim(drops, 0.3, () => processMatchChain()));
+        } else {
+          processMatchChain();
+        }
+      } catch (e) {
+        console.error('[AzerothMatch] Drop/fill error:', e);
+        validateAndRepairBoard();
+        phase = 'idle';
       }
     });
     animations.push(clearAnim);
@@ -1283,41 +1402,51 @@ const Board = (() => {
 
     // Spawn particles for special activation
     cells.forEach(cell => {
-      const v = cellVisual[cell.row][cell.col];
-      if (grid[cell.row][cell.col]) {
-        spawnParticles(v.x + cellSize / 2, v.y + cellSize / 2, grid[cell.row][cell.col].type || 0, 6);
-      }
+      try {
+        const v = cellVisual[cell.row] && cellVisual[cell.row][cell.col];
+        const g = grid[cell.row] && grid[cell.row][cell.col];
+        if (v && g) {
+          spawnParticles(v.x + cellSize / 2, v.y + cellSize / 2, g.type || 0, 6);
+        }
+      } catch (e) { /* skip particle */ }
     });
 
     return cells;
   }
 
   function reshuffleBoard() {
-    const gemTypes = [];
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        if (grid[r][c] && grid[r][c].type !== null && !grid[r][c].obstacle) {
-          gemTypes.push(grid[r][c].type);
+    let attempts = 0;
+    const maxAttempts = 50;
+
+    do {
+      const gemTypes = [];
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (grid[r][c] && grid[r][c].type !== null && !grid[r][c].obstacle) {
+            gemTypes.push(grid[r][c].type);
+          }
         }
       }
-    }
 
-    // Fisher-Yates shuffle
-    for (let i = gemTypes.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [gemTypes[i], gemTypes[j]] = [gemTypes[j], gemTypes[i]];
-    }
+      // Fisher-Yates shuffle
+      for (let i = gemTypes.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [gemTypes[i], gemTypes[j]] = [gemTypes[j], gemTypes[i]];
+      }
 
-    let idx = 0;
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        if (grid[r][c] && grid[r][c].type !== null && !grid[r][c].obstacle) {
-          grid[r][c].type = gemTypes[idx++];
+      let idx = 0;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (grid[r][c] && grid[r][c].type !== null && !grid[r][c].obstacle) {
+            grid[r][c].type = gemTypes[idx++];
+          }
         }
       }
-    }
 
-    spawnFloatText(canvas.width / 2, canvas.height / 2, 'Reshuffle!', '#FFD700');
+      attempts++;
+    } while (attempts < maxAttempts && (findMatches().length > 0 || !hasValidMoves()));
+
+    spawnFloatText(canvas ? canvas.width / 2 : 200, canvas ? canvas.height / 2 : 200, 'Reshuffle!', '#FFD700');
   }
 
   // ======== DROP & FILL ========
@@ -1335,6 +1464,8 @@ const Board = (() => {
             grid[r][c] = null;
             const fromY = cellVisual[r][c].y;
             cellVisual[emptyRow][c].x = c * cellSize + padding;
+            cellVisual[emptyRow][c].scale = 1;
+            cellVisual[emptyRow][c].alpha = 1;
             drops.push({ row: emptyRow, col: c, fromY });
           }
           emptyRow--;
@@ -1352,6 +1483,26 @@ const Board = (() => {
           cellVisual[r][c].scale = 1;
           cellVisual[r][c].alpha = 1;
           drops.push({ row: r, col: c, fromY });
+        }
+      }
+    }
+
+    // Safety pass: check ALL cells and fill any remaining nulls
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (grid[r][c] === null) {
+          const numTypes = levelConfig ? (levelConfig.gemCount || Gems.COUNT) : Gems.COUNT;
+          grid[r][c] = Gems.createGem(Math.floor(Math.random() * numTypes));
+          cellVisual[r][c].x = c * cellSize + padding;
+          cellVisual[r][c].y = r * cellSize + padding;
+          cellVisual[r][c].scale = 1;
+          cellVisual[r][c].alpha = 1;
+          drops.push({ row: r, col: c, fromY: -(Math.random() * 2 + 1) * cellSize });
+        }
+        // Ensure all non-null gems have valid visual state
+        if (grid[r][c] && grid[r][c].type !== null) {
+          if (cellVisual[r][c].scale <= 0) cellVisual[r][c].scale = 1;
+          if (cellVisual[r][c].alpha <= 0) cellVisual[r][c].alpha = 1;
         }
       }
     }
@@ -1388,10 +1539,12 @@ const Board = (() => {
     if (won) {
       phase = 'gameover';
       Audio.playLevelUp();
+      const cw = canvas ? canvas.width : 300;
+      const ch = canvas ? canvas.height : 300;
       for (let i = 0; i < Gems.COUNT; i++) {
         spawnParticles(
-          canvas.width / 2 + (Math.random() - 0.5) * 100,
-          canvas.height / 2 + (Math.random() - 0.5) * 100,
+          cw / 2 + (Math.random() - 0.5) * 100,
+          ch / 2 + (Math.random() - 0.5) * 100,
           i, 12
         );
       }
@@ -1410,7 +1563,7 @@ const Board = (() => {
   function hasObstaclesRemaining() {
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        if (grid[r][c] && grid[r][c].obstacle) return true;
+        if (grid[r][c] && grid[r][c].obstacle && grid[r][c].obstacle.id !== 'stone') return true;
       }
     }
     return false;
@@ -1426,8 +1579,8 @@ const Board = (() => {
         reshuffleBoard();
         return true;
       case 'time':
-        if (timeLeft > 0) timeLeft += 15;
-        return true;
+        if (timeLeft > 0) { timeLeft += 15; return true; }
+        return false;
       case 'bomb': {
         phase = 'animating';
         const cr = Math.floor(rows / 2), cc = Math.floor(cols / 2);
@@ -1450,7 +1603,8 @@ const Board = (() => {
               processMatchChain();
             }));
           } else {
-            phase = 'idle';
+            combo = 0;
+            processMatchChain();
           }
         });
         animations.push(clearAnim);
@@ -1478,7 +1632,8 @@ const Board = (() => {
               processMatchChain();
             }));
           } else {
-            phase = 'idle';
+            combo = 0;
+            processMatchChain();
           }
         });
         animations.push(rainbowAnim);
@@ -1510,7 +1665,8 @@ const Board = (() => {
               processMatchChain();
             }));
           } else {
-            phase = 'idle';
+            combo = 0;
+            processMatchChain();
           }
         });
         animations.push(shadowAnim);
@@ -1533,12 +1689,23 @@ const Board = (() => {
       this.elapsed += dt;
       let t = Math.min(1, this.elapsed / this.duration);
       t = t < 0.5 ? 2 * t * t : (1 - Math.pow(-2 * t + 2, 2) / 2);
-      cellVisual[this.r1][this.c1].x = this.sx1 + (this.sx2 - this.sx1) * t;
-      cellVisual[this.r1][this.c1].y = this.sy1 + (this.sy2 - this.sy1) * t;
-      cellVisual[this.r2][this.c2].x = this.sx2 + (this.sx1 - this.sx2) * t;
-      cellVisual[this.r2][this.c2].y = this.sy2 + (this.sy1 - this.sy2) * t;
+      if (cellVisual[this.r1] && cellVisual[this.r1][this.c1]) {
+        cellVisual[this.r1][this.c1].x = this.sx1 + (this.sx2 - this.sx1) * t;
+        cellVisual[this.r1][this.c1].y = this.sy1 + (this.sy2 - this.sy1) * t;
+      }
+      if (cellVisual[this.r2] && cellVisual[this.r2][this.c2]) {
+        cellVisual[this.r2][this.c2].x = this.sx2 + (this.sx1 - this.sx2) * t;
+        cellVisual[this.r2][this.c2].y = this.sy2 + (this.sy1 - this.sy2) * t;
+      }
       if (this.elapsed >= this.duration) {
-        if (this.onDone) this.onDone();
+        try {
+          if (this.onDone) this.onDone();
+        } catch (e) {
+          console.error('[AzerothMatch] SwapAnim callback error:', e);
+          try { validateAndRepairBoard(); } catch (e2) {}
+          phase = 'idle';
+          selected = null;
+        }
         return false;
       }
       return true;
@@ -1547,8 +1714,10 @@ const Board = (() => {
 
   class ClearAnim {
     constructor(cells, duration, onDone) {
-      this.cells = cells; this.duration = duration; this.elapsed = 0;
+      this.cells = cells.filter(c => c && c.row >= 0 && c.row < rows && c.col >= 0 && c.col < cols);
+      this.duration = duration; this.elapsed = 0;
       this.onDone = onDone; this.particlesSpawned = false;
+      this.flashAlpha = 1.0;
     }
     update(dt) {
       this.elapsed += dt;
@@ -1556,22 +1725,37 @@ const Board = (() => {
       if (!this.particlesSpawned) {
         this.particlesSpawned = true;
         this.cells.forEach(({ row, col }) => {
-          const v = cellVisual[row][col];
-          if (grid[row][col] && grid[row][col].type !== null) {
-            spawnParticles(v.x + cellSize / 2, v.y + cellSize / 2, grid[row][col].type, 8);
-          }
+          try {
+            const v = cellVisual[row] && cellVisual[row][col];
+            if (v && grid[row] && grid[row][col] && grid[row][col].type !== null) {
+              spawnParticles(v.x + cellSize / 2, v.y + cellSize / 2, grid[row][col].type, 10);
+            }
+          } catch (e) { /* skip particle on error */ }
         });
       }
+      // Flash effect stored for render phase (no ctx operations here)
+      this.flashAlpha = Math.max(0, 1.0 - t * 3);
       this.cells.forEach(({ row, col }) => {
-        cellVisual[row][col].scale = 1 - t;
-        cellVisual[row][col].alpha = 1 - t * 0.8;
+        if (cellVisual[row] && cellVisual[row][col]) {
+          cellVisual[row][col].scale = 1 - t;
+          cellVisual[row][col].alpha = 1 - t * 0.8;
+        }
       });
       if (this.elapsed >= this.duration) {
         this.cells.forEach(({ row, col }) => {
-          cellVisual[row][col].scale = 1;
-          cellVisual[row][col].alpha = 1;
+          if (cellVisual[row] && cellVisual[row][col]) {
+            cellVisual[row][col].scale = 1;
+            cellVisual[row][col].alpha = 1;
+          }
         });
-        if (this.onDone) this.onDone();
+        try {
+          if (this.onDone) this.onDone();
+        } catch (e) {
+          console.error('[AzerothMatch] ClearAnim callback error:', e);
+          // Emergency: force recover
+          try { validateAndRepairBoard(); } catch (e2) {}
+          phase = 'idle';
+        }
         return false;
       }
       return true;
@@ -1580,21 +1764,35 @@ const Board = (() => {
 
   class DropAnim {
     constructor(drops, duration, onDone) {
-      this.drops = drops; this.duration = duration; this.elapsed = 0; this.onDone = onDone;
+      this.drops = drops.filter(d => d && d.row >= 0 && d.row < rows && d.col >= 0 && d.col < cols);
+      this.duration = duration; this.elapsed = 0; this.onDone = onDone;
     }
     update(dt) {
       this.elapsed += dt;
       let t = Math.min(1, this.elapsed / this.duration);
       t = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
       this.drops.forEach(d => {
-        const targetY = d.row * cellSize + padding;
-        cellVisual[d.row][d.col].y = d.fromY + (targetY - d.fromY) * t;
+        if (cellVisual[d.row] && cellVisual[d.row][d.col]) {
+          const targetY = d.row * cellSize + padding;
+          cellVisual[d.row][d.col].y = d.fromY + (targetY - d.fromY) * t;
+        }
       });
       if (this.elapsed >= this.duration) {
         this.drops.forEach(d => {
-          cellVisual[d.row][d.col].y = d.row * cellSize + padding;
+          if (cellVisual[d.row] && cellVisual[d.row][d.col]) {
+            cellVisual[d.row][d.col].x = d.col * cellSize + padding;
+            cellVisual[d.row][d.col].y = d.row * cellSize + padding;
+            cellVisual[d.row][d.col].scale = 1;
+            cellVisual[d.row][d.col].alpha = 1;
+          }
         });
-        if (this.onDone) this.onDone();
+        try {
+          if (this.onDone) this.onDone();
+        } catch (e) {
+          console.error('[AzerothMatch] DropAnim callback error:', e);
+          try { validateAndRepairBoard(); } catch (e2) {}
+          phase = 'idle';
+        }
         return false;
       }
       return true;
@@ -1602,6 +1800,7 @@ const Board = (() => {
   }
 
   function resetVisual(r, c) {
+    if (!cellVisual[r]) cellVisual[r] = [];
     cellVisual[r][c] = {
       x: c * cellSize + padding,
       y: r * cellSize + padding,
@@ -1646,10 +1845,13 @@ const Board = (() => {
 
   // ======== INPUT ========
 
+  let lastTouchTime = 0;
+
   function setupInput() {
     if (!canvas) return;
 
     canvas.addEventListener('mousedown', e => {
+      if (Date.now() - lastTouchTime < 500) return;
       Audio.init();
       clearHint();
       const cell = getCellFromXY(e.clientX, e.clientY);
@@ -1658,6 +1860,7 @@ const Board = (() => {
 
     // Feature 5: Mouse move for hover preview
     canvas.addEventListener('mousemove', e => {
+      if (Date.now() - lastTouchTime < 500) return;
       if (phase !== 'idle') return;
       const cell = getCellFromXY(e.clientX, e.clientY);
       hoverCell = cell;
@@ -1670,6 +1873,7 @@ const Board = (() => {
     });
 
     canvas.addEventListener('touchstart', e => {
+      lastTouchTime = Date.now();
       e.preventDefault();
       Audio.init();
       clearHint();
@@ -1677,6 +1881,8 @@ const Board = (() => {
       const touch = e.touches[0];
       const cell = getCellFromXY(touch.clientX, touch.clientY);
       if (cell) {
+        const gem = grid[cell.row] && grid[cell.row][cell.col];
+        if (!gem || (gem.obstacle && gem.obstacle.id === 'stone')) return;
         touchStart = cell;
         if (!selected) {
           selected = cell;
@@ -1702,20 +1908,23 @@ const Board = (() => {
 
     canvas.addEventListener('touchend', e => {
       e.preventDefault();
-      if (phase !== 'idle' || !touchStart) return;
+      if (!touchStart) return;
+      // Always clear touchStart to prevent stuck state
+      const startRef = touchStart;
+      touchStart = null;
+      hoverCell = null;
+      previewSwapGhost = null;
+      if (phase !== 'idle') return;
       const touch = e.changedTouches[0];
       const cell = getCellFromXY(touch.clientX, touch.clientY);
       if (cell) {
         if (selected && isAdjacent(selected, cell)) {
           handleMove(selected, cell);
-        } else if (cell) {
+        } else {
           selected = cell;
           Audio.playSelect();
         }
       }
-      touchStart = null;
-      hoverCell = null;
-      previewSwapGhost = null;
     }, { passive: false });
   }
 
@@ -1799,6 +2008,52 @@ const Board = (() => {
     roundRect(ctx, 0, 0, w, h, 16);
     ctx.fill();
 
+    // Decorative board frame with golden border
+    ctx.save();
+    ctx.strokeStyle = 'rgba(201,168,76,0.25)';
+    ctx.lineWidth = 2;
+    roundRect(ctx, 1, 1, w - 2, h - 2, 15);
+    ctx.stroke();
+    // Inner subtle glow line
+    ctx.strokeStyle = 'rgba(201,168,76,0.08)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, 3, 3, w - 6, h - 6, 13);
+    ctx.stroke();
+    ctx.restore();
+
+    // Corner decorations
+    if (!prefersReducedMotion) {
+      ctx.save();
+      const cornerGlow = 0.12 + 0.05 * Math.sin((timestamp || 0) * 0.002);
+      ctx.globalAlpha = cornerGlow;
+      const cornerR = 20;
+      // Top-left
+      const cGrad1 = ctx.createRadialGradient(0, 0, 0, 0, 0, cornerR);
+      cGrad1.addColorStop(0, 'rgba(201,168,76,0.6)');
+      cGrad1.addColorStop(1, 'rgba(201,168,76,0)');
+      ctx.fillStyle = cGrad1;
+      ctx.fillRect(0, 0, cornerR, cornerR);
+      // Top-right
+      const cGrad2 = ctx.createRadialGradient(w, 0, 0, w, 0, cornerR);
+      cGrad2.addColorStop(0, 'rgba(201,168,76,0.6)');
+      cGrad2.addColorStop(1, 'rgba(201,168,76,0)');
+      ctx.fillStyle = cGrad2;
+      ctx.fillRect(w - cornerR, 0, cornerR, cornerR);
+      // Bottom-left
+      const cGrad3 = ctx.createRadialGradient(0, h, 0, 0, h, cornerR);
+      cGrad3.addColorStop(0, 'rgba(201,168,76,0.6)');
+      cGrad3.addColorStop(1, 'rgba(201,168,76,0)');
+      ctx.fillStyle = cGrad3;
+      ctx.fillRect(0, h - cornerR, cornerR, cornerR);
+      // Bottom-right
+      const cGrad4 = ctx.createRadialGradient(w, h, 0, w, h, cornerR);
+      cGrad4.addColorStop(0, 'rgba(201,168,76,0.6)');
+      cGrad4.addColorStop(1, 'rgba(201,168,76,0)');
+      ctx.fillStyle = cGrad4;
+      ctx.fillRect(w - cornerR, h - cornerR, cornerR, cornerR);
+      ctx.restore();
+    }
+
     // Feature 2: Night stars
     if (weatherPhase === 'night' && !prefersReducedMotion) {
       ctx.save();
@@ -1818,14 +2073,20 @@ const Board = (() => {
     // Feature 2: Weather particles behind gems
     renderWeatherParticles(ctx);
 
-    // Grid cell backgrounds
+    // Grid cell backgrounds with subtle inner glow
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const x = c * cellSize + padding;
         const y = r * cellSize + padding;
-        ctx.fillStyle = (r + c) % 2 === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)';
+        const isLight = (r + c) % 2 === 0;
+        ctx.fillStyle = isLight ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.05)';
         roundRect(ctx, x + 1, y + 1, cellSize - 2, cellSize - 2, 8);
         ctx.fill();
+        // Subtle inner border for depth
+        ctx.strokeStyle = isLight ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)';
+        ctx.lineWidth = 0.5;
+        roundRect(ctx, x + 1.5, y + 1.5, cellSize - 3, cellSize - 3, 7);
+        ctx.stroke();
       }
     }
 
@@ -1900,7 +2161,7 @@ const Board = (() => {
     const barW = canvasW - 20;
     const barH = 12;
     const x = 10, y = 4;
-    const pct = bossHp / bossMaxHp;
+    const pct = bossMaxHp > 0 ? bossHp / bossMaxHp : 0;
 
     ctx.save();
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
@@ -1991,9 +2252,19 @@ const Board = (() => {
     const dt = Math.min(0.05, (timestamp - lastTime) / 1000);
     lastTime = timestamp;
 
-    // Update animations
+    // Update animations (with per-animation error protection)
     for (let i = animations.length - 1; i >= 0; i--) {
-      if (!animations[i].update(dt)) animations.splice(i, 1);
+      try {
+        if (!animations[i].update(dt)) animations.splice(i, 1);
+      } catch (e) {
+        console.error('[AzerothMatch] Animation error, removing broken animation:', e);
+        animations.splice(i, 1);
+        // If this was the last animation and we're still animating, recover
+        if (animations.length === 0 && phase === 'animating') {
+          phase = 'idle';
+          validateAndRepairBoard();
+        }
+      }
     }
 
     // Particles
@@ -2022,11 +2293,32 @@ const Board = (() => {
 
     // Time-based levels
     if (timeLeft > 0 && phase === 'idle') {
+      const prevSecond = Math.ceil(timeLeft);
       timeLeft -= dt;
+      const newSecond = Math.ceil(timeLeft);
+      if (prevSecond !== newSecond && onScoreChange) {
+        try { onScoreChange(getState()); } catch (e) {}
+      }
       if (timeLeft <= 0) {
         timeLeft = 0;
         checkGameState();
       }
+    }
+
+    // Stuck-phase detection: if animating with no animations for too long, recover
+    if (phase === 'animating' && animations.length === 0) {
+      stuckTimer += dt;
+      if (stuckTimer > STUCK_TIMEOUT) {
+        console.warn('[AzerothMatch] Phase stuck at animating with no animations — auto-recovering');
+        phase = 'idle';
+        validateAndRepairBoard();
+        stuckTimer = 0;
+        if (onMoveComplete) {
+          try { onMoveComplete(getState()); } catch (e) {}
+        }
+      }
+    } else {
+      stuckTimer = 0;
     }
 
     // Feature 1: Hint system
@@ -2042,12 +2334,32 @@ const Board = (() => {
   }
 
   let rafHandle = null;
+  let stuckTimer = 0;       // tracks how long phase='animating' with empty queue
+  let lastPhaseChange = 0;  // timestamp of last phase change
+  const STUCK_TIMEOUT = 3.0; // seconds before auto-recovery
 
   function startLoop() {
     if (rafHandle) cancelAnimationFrame(rafHandle);
     lastTime = performance.now();
+    stuckTimer = 0;
     function loop(ts) {
-      update(ts);
+      try {
+        update(ts);
+      } catch (e) {
+        console.error('[AzerothMatch] Game loop error:', e);
+        // Emergency recovery — never let the game freeze
+        try {
+          animations = [];
+          if (phase === 'animating') {
+            phase = 'idle';
+            validateAndRepairBoard();
+          }
+        } catch (recoveryErr) {
+          console.error('[AzerothMatch] Recovery also failed:', recoveryErr);
+          phase = 'idle';
+          animations = [];
+        }
+      }
       rafHandle = requestAnimationFrame(loop);
     }
     rafHandle = requestAnimationFrame(loop);

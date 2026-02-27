@@ -103,7 +103,7 @@ body::before {
 /* ======== PAGES ======== */
 .page { display: none; flex: 1; padding: 0 12px 12px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .page.active { display: flex; flex-direction: column; }
-#page-game { padding: 0 4px 4px; } /* Tighter padding for game page to maximize board size */
+#page-game { padding: 0 4px 4px; position: relative; } /* Tighter padding for game page to maximize board size */
 
 /* ======== HOME PAGE ======== */
 .home-hero {

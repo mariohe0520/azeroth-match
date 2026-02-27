@@ -289,9 +289,16 @@ const Campaign = (() => {
   function generateObstacles(islandIndex, localLevel) {
     const obstacles = [];
     const count = 3 + Math.floor(islandIndex * 1.5);
+    const globalIndex = islandIndex * 15 + localLevel;
+    let gridRows = 8, gridCols = 8;
+    if (islandIndex === 0 && localLevel < 3) { gridRows = 6; gridCols = 6; }
+    else if (islandIndex === 0 && localLevel < 8) { gridRows = 7; gridCols = 7; }
+    else if (islandIndex === 0) { gridRows = 7; gridCols = 7; }
+    const maxR = gridRows - 2;
+    const maxC = gridCols - 2;
     for (let i = 0; i < count; i++) {
-      const r = 1 + Math.floor(Math.random() * 6);
-      const c = 1 + Math.floor(Math.random() * 6);
+      const r = 1 + Math.floor(Math.random() * maxR);
+      const c = 1 + Math.floor(Math.random() * maxC);
       if (obstacles.find(o => o.row === r && o.col === c)) continue;
       let type = 'ice';
       if (islandIndex >= 3) type = Math.random() > 0.5 ? 'ice' : 'stone';

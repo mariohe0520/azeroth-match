@@ -100,6 +100,8 @@ const App = (() => {
     if (nav) nav.style.display = page === 'game' ? 'none' : 'flex';
     currentPage = page;
 
+    if (page !== 'adventure') selectedIsland = null;
+    if (page !== 'story') currentStoryChapter = null;
     switch (page) {
       case 'home': renderHome(); break;
       case 'adventure': renderAdventure(); break;
@@ -189,14 +191,38 @@ const App = (() => {
     html += '</div></div>';
     container.innerHTML = html;
 
-    document.getElementById('backToIslands').addEventListener('click', () => { selectedIsland = null; renderAdventure(); });
+    const backBtn2 = document.getElementById('backToIslands');
+    if (backBtn2) backBtn2.addEventListener('click', () => { selectedIsland = null; renderAdventure(); });
     container.querySelectorAll('.level-cell:not(.locked)').forEach(cell => {
       cell.addEventListener('click', () => startGameLevel(parseInt(cell.dataset.level)));
     });
   }
 
+  function resetCampaignCallbacks() {
+    Board.setCallbacks({
+      onScoreChange: (state) => {
+        updateGameUI(state);
+        if (state.combo >= 3) showComboFlash(state.combo);
+        const movesEl = document.getElementById('gameMoves');
+        if (movesEl) {
+          if (state.timeLeft > 0 && state.timeLeft < 10) movesEl.classList.add('timer-urgent');
+          else movesEl.classList.remove('timer-urgent');
+        }
+      },
+      onLevelComplete: handleLevelComplete,
+      onLevelFail: handleLevelFail,
+      onMoveComplete: (state) => {
+        const data = Storage.get();
+        if (state.combo > data.stats.maxCombo) data.stats.maxCombo = state.combo;
+        data.stats.totalMoves++;
+        Storage.save();
+      }
+    });
+  }
+
   function startGameLevel(globalIndex) {
     Audio.init();
+    resetCampaignCallbacks();
     currentLevelConfig = Campaign.getLevelConfig(globalIndex);
     const data = Storage.get();
     const islandIndex = Math.floor(globalIndex / 15);
@@ -255,9 +281,13 @@ const App = (() => {
       }
     }
 
-    const pct = state.objectives && state.objectives.type === 'boss'
-      ? Math.min(100, ((state.bossMaxHp - state.bossHp) / state.bossMaxHp) * 100)
-      : Math.min(100, (state.score / state.targetScore) * 100);
+    let pct = 0;
+    if (state.objectives && state.objectives.type === 'boss' && state.bossMaxHp > 0) {
+      pct = Math.min(100, ((state.bossMaxHp - state.bossHp) / state.bossMaxHp) * 100);
+    } else if (state.targetScore > 0) {
+      pct = Math.min(100, (state.score / state.targetScore) * 100);
+    }
+    if (isNaN(pct) || !isFinite(pct)) pct = 0;
 
     const progressBar = document.getElementById('gameProgressBar');
     if (progressBar) progressBar.style.width = `${pct}%`;
@@ -276,8 +306,10 @@ const App = (() => {
         btn.querySelector('.potion-count').textContent = count;
         btn.classList.toggle('disabled', count <= 0);
         btn.onclick = () => {
-          if (count > 0 && Board.phase === 'idle') {
-            if (Potion.usePotion(data, pot)) {
+          const freshData = Storage.get();
+          const freshCount = freshData.potions.inventory[pot] || 0;
+          if (freshCount > 0 && Board.phase === 'idle') {
+            if (Potion.usePotion(freshData, pot)) {
               Board.usePotion(effectMap[pot]);
               Storage.save();
               updatePotionButtons();
@@ -293,9 +325,14 @@ const App = (() => {
     const config = currentLevelConfig;
     if (!config) return;
     const globalIdx = config.globalIndex;
+    if (globalIdx < 0) return;
     const stars = Campaign.getLevelStars(state.score, state.targetScore);
 
-    if (!data.highScores[globalIdx] || state.score > data.highScores[globalIdx]) data.highScores[globalIdx] = state.score;
+    const prevHighScore = data.highScores[globalIdx] || 0;
+    if (state.score > prevHighScore) {
+      data.stats.totalScore += (state.score - prevHighScore);
+      data.highScores[globalIdx] = state.score;
+    }
     if (!data.stars[globalIdx] || stars > data.stars[globalIdx]) data.stars[globalIdx] = stars;
 
     let totalStars = 0;
@@ -307,7 +344,6 @@ const App = (() => {
       data.currentIsland = Math.floor(data.currentLevel / 15);
       data.stats.levelsCompleted++;
     }
-    data.stats.totalScore += state.score;
     if (config.isBoss) data.stats.bossesDefeated++;
 
     const seedReward = Garden.getSeedFromMatch(3, Math.floor(Math.random() * Gems.COUNT));
@@ -482,7 +518,8 @@ const App = (() => {
 
     if (currentStoryChapter) {
       Story.renderChapterDetail(container, currentStoryChapter, data);
-      document.getElementById('backToStoryList').addEventListener('click', () => {
+      const storyBackBtn = document.getElementById('backToStoryList');
+      if (storyBackBtn) storyBackBtn.addEventListener('click', () => {
         currentStoryChapter = null;
         renderStory();
       });
@@ -634,12 +671,16 @@ const App = (() => {
 
   function showAchievementToast(ach) {
     if (!ach) return;
+    const existing = document.querySelectorAll('.achievement-toast');
+    if (existing.length >= 3) existing[0].remove();
+    const topOffset = 60 + existing.length * 52;
     const toast = document.createElement('div');
     toast.className = 'achievement-toast';
+    toast.style.top = topOffset + 'px';
     toast.innerHTML = `<span class="toast-emoji">${ach.emoji}</span><div class="toast-text"><div class="toast-title">${ach.name}</div><div class="toast-desc">${ach.desc || ''}</div></div>`;
     document.body.appendChild(toast);
     Audio.playAchievement();
-    setTimeout(() => toast.remove(), 3200);
+    setTimeout(() => { if (toast.parentNode) toast.remove(); }, 3200);
   }
 
   function showComboFlash(combo) {

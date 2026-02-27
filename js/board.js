@@ -101,6 +101,17 @@ const Board = (() => {
 
     if (config) applyConfig(config);
     setupInput();
+
+    let resizeTimeout = null;
+    window.addEventListener('resize', () => {
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        if (phase !== 'animating') {
+          updateCanvasSize();
+          initCellVisual();
+        }
+      }, 200);
+    });
   }
 
   function applyConfig(config) {
@@ -109,7 +120,7 @@ const Board = (() => {
     cols = config.cols || 8;
     targetScore = config.targetScore || 500;
     movesLeft = config.moves || 25;
-    timeLeft = config.timeLimit || -1;
+    timeLeft = (config.timeLimit !== undefined && config.timeLimit !== null && config.timeLimit >= 0) ? config.timeLimit : -1;
     objectives = config.objectives || null;
     bossHp = config.bossHp || 0;
     bossMaxHp = bossHp;
@@ -241,7 +252,7 @@ const Board = (() => {
 
   function updateCanvasSize() {
     const container = document.getElementById('boardContainer');
-    if (!container) return;
+    if (!container || !canvas) return;
     const maxW = container.clientWidth - 8;
     cellSize = Math.floor(Math.min(60, (maxW - padding * 2) / cols));
     cellSize = Math.max(46, cellSize); // minimum 46px for better visibility
@@ -1105,6 +1116,7 @@ const Board = (() => {
   }
 
   function processMatchChain() {
+    if (phase === 'gameover') return;
     const matchGroups = findMatchGroups();
     const allMatches = findMatches();
 
@@ -1173,8 +1185,33 @@ const Board = (() => {
       bossHp = Math.max(0, bossHp - dmg);
     }
 
+    // Merge overlapping match groups of same type for L/T shape detection
+    const mergedGroups = [];
+    const groupUsed = new Array(matchGroups.length).fill(false);
+    for (let i = 0; i < matchGroups.length; i++) {
+      if (groupUsed[i]) continue;
+      const merged = { cells: [...matchGroups[i].cells], dir: matchGroups[i].dir, type: matchGroups[i].type };
+      groupUsed[i] = true;
+      for (let j = i + 1; j < matchGroups.length; j++) {
+        if (groupUsed[j] || matchGroups[j].type !== merged.type) continue;
+        const overlaps = matchGroups[j].cells.some(c2 =>
+          merged.cells.some(c1 => c1.row === c2.row && c1.col === c2.col)
+        );
+        if (overlaps) {
+          matchGroups[j].cells.forEach(c2 => {
+            if (!merged.cells.some(c1 => c1.row === c2.row && c1.col === c2.col)) {
+              merged.cells.push(c2);
+            }
+          });
+          if (matchGroups[j].dir !== merged.dir) merged.dir = 'cross';
+          groupUsed[j] = true;
+        }
+      }
+      mergedGroups.push(merged);
+    }
+
     // Check for special gem creation
-    matchGroups.forEach(group => {
+    mergedGroups.forEach(group => {
       try {
         const special = Gems.getSpecialFromMatch(group.cells, group.dir);
         if (special && group.cells.length > 0) {
@@ -1209,7 +1246,7 @@ const Board = (() => {
     const allClears = [...allMatches, ...extraClears];
 
     // Transfer _becomeSpecial from matchGroup cells to allClears by position
-    matchGroups.forEach(group => {
+    mergedGroups.forEach(group => {
       group.cells.forEach(cell => {
         if (cell._becomeSpecial) {
           const target = allClears.find(c => c.row === cell.row && c.col === cell.col);
@@ -1378,31 +1415,38 @@ const Board = (() => {
   }
 
   function reshuffleBoard() {
-    const gemTypes = [];
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        if (grid[r][c] && grid[r][c].type !== null && !grid[r][c].obstacle) {
-          gemTypes.push(grid[r][c].type);
+    let attempts = 0;
+    const maxAttempts = 50;
+
+    do {
+      const gemTypes = [];
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (grid[r][c] && grid[r][c].type !== null && !grid[r][c].obstacle) {
+            gemTypes.push(grid[r][c].type);
+          }
         }
       }
-    }
 
-    // Fisher-Yates shuffle
-    for (let i = gemTypes.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [gemTypes[i], gemTypes[j]] = [gemTypes[j], gemTypes[i]];
-    }
+      // Fisher-Yates shuffle
+      for (let i = gemTypes.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [gemTypes[i], gemTypes[j]] = [gemTypes[j], gemTypes[i]];
+      }
 
-    let idx = 0;
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        if (grid[r][c] && grid[r][c].type !== null && !grid[r][c].obstacle) {
-          grid[r][c].type = gemTypes[idx++];
+      let idx = 0;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (grid[r][c] && grid[r][c].type !== null && !grid[r][c].obstacle) {
+            grid[r][c].type = gemTypes[idx++];
+          }
         }
       }
-    }
 
-    spawnFloatText(canvas.width / 2, canvas.height / 2, 'Reshuffle!', '#FFD700');
+      attempts++;
+    } while (attempts < maxAttempts && (findMatches().length > 0 || !hasValidMoves()));
+
+    spawnFloatText(canvas ? canvas.width / 2 : 200, canvas ? canvas.height / 2 : 200, 'Reshuffle!', '#FFD700');
   }
 
   // ======== DROP & FILL ========
@@ -1495,10 +1539,12 @@ const Board = (() => {
     if (won) {
       phase = 'gameover';
       Audio.playLevelUp();
+      const cw = canvas ? canvas.width : 300;
+      const ch = canvas ? canvas.height : 300;
       for (let i = 0; i < Gems.COUNT; i++) {
         spawnParticles(
-          canvas.width / 2 + (Math.random() - 0.5) * 100,
-          canvas.height / 2 + (Math.random() - 0.5) * 100,
+          cw / 2 + (Math.random() - 0.5) * 100,
+          ch / 2 + (Math.random() - 0.5) * 100,
           i, 12
         );
       }
@@ -1517,7 +1563,7 @@ const Board = (() => {
   function hasObstaclesRemaining() {
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        if (grid[r][c] && grid[r][c].obstacle) return true;
+        if (grid[r][c] && grid[r][c].obstacle && grid[r][c].obstacle.id !== 'stone') return true;
       }
     }
     return false;
@@ -1533,8 +1579,8 @@ const Board = (() => {
         reshuffleBoard();
         return true;
       case 'time':
-        if (timeLeft > 0) timeLeft += 15;
-        return true;
+        if (timeLeft > 0) { timeLeft += 15; return true; }
+        return false;
       case 'bomb': {
         phase = 'animating';
         const cr = Math.floor(rows / 2), cc = Math.floor(cols / 2);
@@ -1557,7 +1603,8 @@ const Board = (() => {
               processMatchChain();
             }));
           } else {
-            phase = 'idle';
+            combo = 0;
+            processMatchChain();
           }
         });
         animations.push(clearAnim);
@@ -1585,7 +1632,8 @@ const Board = (() => {
               processMatchChain();
             }));
           } else {
-            phase = 'idle';
+            combo = 0;
+            processMatchChain();
           }
         });
         animations.push(rainbowAnim);
@@ -1617,7 +1665,8 @@ const Board = (() => {
               processMatchChain();
             }));
           } else {
-            phase = 'idle';
+            combo = 0;
+            processMatchChain();
           }
         });
         animations.push(shadowAnim);
@@ -1751,6 +1800,7 @@ const Board = (() => {
   }
 
   function resetVisual(r, c) {
+    if (!cellVisual[r]) cellVisual[r] = [];
     cellVisual[r][c] = {
       x: c * cellSize + padding,
       y: r * cellSize + padding,
@@ -1795,10 +1845,13 @@ const Board = (() => {
 
   // ======== INPUT ========
 
+  let lastTouchTime = 0;
+
   function setupInput() {
     if (!canvas) return;
 
     canvas.addEventListener('mousedown', e => {
+      if (Date.now() - lastTouchTime < 500) return;
       Audio.init();
       clearHint();
       const cell = getCellFromXY(e.clientX, e.clientY);
@@ -1807,6 +1860,7 @@ const Board = (() => {
 
     // Feature 5: Mouse move for hover preview
     canvas.addEventListener('mousemove', e => {
+      if (Date.now() - lastTouchTime < 500) return;
       if (phase !== 'idle') return;
       const cell = getCellFromXY(e.clientX, e.clientY);
       hoverCell = cell;
@@ -1819,6 +1873,7 @@ const Board = (() => {
     });
 
     canvas.addEventListener('touchstart', e => {
+      lastTouchTime = Date.now();
       e.preventDefault();
       Audio.init();
       clearHint();
@@ -1826,6 +1881,8 @@ const Board = (() => {
       const touch = e.touches[0];
       const cell = getCellFromXY(touch.clientX, touch.clientY);
       if (cell) {
+        const gem = grid[cell.row] && grid[cell.row][cell.col];
+        if (!gem || (gem.obstacle && gem.obstacle.id === 'stone')) return;
         touchStart = cell;
         if (!selected) {
           selected = cell;
@@ -2104,7 +2161,7 @@ const Board = (() => {
     const barW = canvasW - 20;
     const barH = 12;
     const x = 10, y = 4;
-    const pct = bossHp / bossMaxHp;
+    const pct = bossMaxHp > 0 ? bossHp / bossMaxHp : 0;
 
     ctx.save();
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
@@ -2236,7 +2293,12 @@ const Board = (() => {
 
     // Time-based levels
     if (timeLeft > 0 && phase === 'idle') {
+      const prevSecond = Math.ceil(timeLeft);
       timeLeft -= dt;
+      const newSecond = Math.ceil(timeLeft);
+      if (prevSecond !== newSecond && onScoreChange) {
+        try { onScoreChange(getState()); } catch (e) {}
+      }
       if (timeLeft <= 0) {
         timeLeft = 0;
         checkGameState();

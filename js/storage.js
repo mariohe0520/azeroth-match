@@ -64,20 +64,37 @@ const Storage = (() => {
   let _lastSaveTime = 0;
   const SAVE_DEBOUNCE_MS = 1000;
 
+  let _saveWarned = false;
+
+  function _doSave() {
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify(_data));
+    } catch (e) {
+      if (!_saveWarned) {
+        _saveWarned = true;
+        console.error('[AzerothMatch] Save failed — localStorage may be full:', e.name);
+        try {
+          if (_data && _data.daily && _data.daily.completedDailies && _data.daily.completedDailies.length > 60) {
+            _data.daily.completedDailies = _data.daily.completedDailies.slice(-30);
+            localStorage.setItem(SAVE_KEY, JSON.stringify(_data));
+          }
+        } catch (e2) {}
+      }
+    }
+  }
+
   function save() {
     if (!_data) return;
     const now = Date.now();
     if (now - _lastSaveTime >= SAVE_DEBOUNCE_MS) {
-      // Enough time has passed, save immediately
       _lastSaveTime = now;
-      try { localStorage.setItem(SAVE_KEY, JSON.stringify(_data)); } catch (e) {}
+      _doSave();
     } else {
-      // Debounce: schedule a save if not already scheduled
       if (!_saveTimer) {
         _saveTimer = setTimeout(() => {
           _saveTimer = null;
           _lastSaveTime = Date.now();
-          try { localStorage.setItem(SAVE_KEY, JSON.stringify(_data)); } catch (e) {}
+          _doSave();
         }, SAVE_DEBOUNCE_MS - (now - _lastSaveTime));
       }
     }
