@@ -1151,6 +1151,17 @@ const Board = (() => {
     Audio.playMatch(mainGemType);
     if (combo >= 2) Audio.playCombo(combo);
 
+    // Trigger first_match achievement
+    try {
+      const achData = Storage.get();
+      if (achData && !achData.achievements['first_match']) {
+        achData.achievements['first_match'] = { unlocked: true, unlockedAt: Date.now() };
+      }
+      if (achData && combo >= 2 && !achData.achievements['first_combo']) {
+        achData.achievements['first_combo'] = { unlocked: true, unlockedAt: Date.now() };
+      }
+    } catch (e) { /* non-critical */ }
+
     // Score calculation with rhythm multiplier
     const baseScore = allMatches.length * 15;
     const comboBonus = combo > 1 ? combo * 8 : 0;
@@ -1217,6 +1228,13 @@ const Board = (() => {
         if (special && group.cells.length > 0) {
           const center = group.cells[Math.floor(group.cells.length / 2)];
           center._becomeSpecial = { special, type: group.type };
+          // Trigger first_special achievement
+          try {
+            const achData = Storage.get();
+            if (achData && !achData.achievements['first_special']) {
+              achData.achievements['first_special'] = { unlocked: true, unlockedAt: Date.now() };
+            }
+          } catch (e2) { /* non-critical */ }
         }
       } catch (e) {
         console.warn('[AzerothMatch] Special gem creation error:', e);
@@ -1580,6 +1598,8 @@ const Board = (() => {
         return true;
       case 'time':
         if (timeLeft > 0) { timeLeft += 15; return true; }
+        // On non-timed levels, frost potion grants +3 extra moves instead
+        if (timeLeft === -1) { movesLeft += 3; if (onScoreChange) onScoreChange(getState()); return true; }
         return false;
       case 'bomb': {
         phase = 'animating';
@@ -1875,6 +1895,8 @@ const Board = (() => {
     canvas.addEventListener('touchstart', e => {
       lastTouchTime = Date.now();
       e.preventDefault();
+      // Ignore multi-touch
+      if (e.touches.length > 1) return;
       Audio.init();
       clearHint();
       if (phase !== 'idle') return;
@@ -1976,8 +1998,13 @@ const Board = (() => {
     if (!ctx || !canvas) return;
     const w = canvas.width, h = canvas.height;
 
-    // Feature 2: Update weather phase
+    // Feature 2: Update weather phase and apply CSS class to body
+    const prevWeatherPhase = weatherPhase;
     weatherPhase = getWeatherPhase();
+    if (weatherPhase !== prevWeatherPhase) {
+      document.body.classList.remove('weather-dawn', 'weather-day', 'weather-sunset', 'weather-night');
+      document.body.classList.add('weather-' + weatherPhase);
+    }
 
     ctx.save();
 
@@ -2291,6 +2318,12 @@ const Board = (() => {
       if (t > 0.3) f.targetScale = 0.9;
     }
 
+    // Skip non-essential updates when paused
+    if (phase === 'paused') {
+      render(timestamp);
+      return;
+    }
+
     // Time-based levels
     if (timeLeft > 0 && phase === 'idle') {
       const prevSecond = Math.ceil(timeLeft);
@@ -2335,7 +2368,6 @@ const Board = (() => {
 
   let rafHandle = null;
   let stuckTimer = 0;       // tracks how long phase='animating' with empty queue
-  let lastPhaseChange = 0;  // timestamp of last phase change
   const STUCK_TIMEOUT = 3.0; // seconds before auto-recovery
 
   function startLoop() {

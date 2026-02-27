@@ -3,7 +3,7 @@
  * Network-first strategy to prevent stale cache issues
  */
 
-const CACHE_NAME = 'azeroth-match-v2';
+const CACHE_NAME = 'azeroth-match-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -18,7 +18,8 @@ const ASSETS = [
   './js/potion.js',
   './js/daily.js',
   './js/storage.js',
-  './js/story.js'
+  './js/story.js',
+  './manifest.json'
 ];
 
 // Install: pre-cache all static assets

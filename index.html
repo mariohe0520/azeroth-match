@@ -210,7 +210,7 @@
     <p class="modal-text text-accent" id="completeSeedInfo">🌿 获得草药种子！</p>
     <div class="modal-buttons">
       <button class="btn btn-primary" id="nextLevelBtn">下一关 →</button>
-      <button class="btn btn-secondary" onclick="App.hideModal('completeModal'); App.navigateTo('home');">主页</button>
+      <button class="btn btn-secondary" onclick="App.hideModal('completeModal'); Board.phase = 'gameover'; App.navigateTo('home');">主页</button>
     </div>
   </div>
 </div>
@@ -235,7 +235,7 @@
     <div class="modal-title">确定撤退？</div>
     <p class="modal-text">当前进度将不会保存</p>
     <div class="modal-buttons">
-      <button class="btn btn-danger" onclick="App.hideModal('quitModal'); App.navigateTo('home');">撤退</button>
+      <button class="btn btn-danger" onclick="App.hideModal('quitModal'); Board.phase = 'gameover'; App.navigateTo('home');">撤退</button>
       <button class="btn btn-secondary" onclick="App.hideModal('quitModal'); Board.phase = 'idle';">继续</button>
     </div>
   </div>

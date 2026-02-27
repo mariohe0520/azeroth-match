@@ -14,6 +14,7 @@ const App = (() => {
   let currentLevelConfig = null;
   let titleClickCount = 0;
   let currentStoryChapter = null;
+  let gardenRefreshTimer = null;
 
   function init() {
     Storage.migrateV1();
@@ -35,11 +36,13 @@ const App = (() => {
     const soundBtn = document.getElementById('soundToggle');
     if (soundBtn) {
       soundBtn.textContent = Audio.isEnabled() ? '🔊' : '🔇';
+      soundBtn.setAttribute('aria-checked', String(Audio.isEnabled()));
       soundBtn.addEventListener('click', () => {
         Audio.init();
         const enabled = !Audio.isEnabled();
         Audio.setEnabled(enabled);
         soundBtn.textContent = enabled ? '🔊' : '🔇';
+        soundBtn.setAttribute('aria-checked', String(enabled));
         data.settings.soundEnabled = enabled;
         Storage.save();
       });
@@ -86,22 +89,61 @@ const App = (() => {
 
     Daily.checkAllAchievements(data);
     Storage.save();
+
+    // Keyboard accessibility: make all action-cards respond to Enter/Space
+    document.querySelectorAll('.action-card[role="button"]').forEach(card => {
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          card.click();
+        }
+      });
+    });
+
+    // Hardware/browser back button support
+    window.addEventListener('popstate', () => {
+      if (currentPage === 'game') {
+        if (Board.phase === 'idle' || Board.phase === 'paused') {
+          Board.phase = 'paused';
+          showModal('quitModal');
+        }
+      } else if (currentPage === 'adventure' && selectedIsland !== null) {
+        selectedIsland = null;
+        renderAdventure();
+        history.pushState(null, '', '');
+      } else if (currentPage !== 'home') {
+        navigateTo('home');
+        history.pushState(null, '', '');
+      }
+    });
+    // Push initial state so we can intercept back
+    history.pushState(null, '', '');
   }
 
   function navigateTo(page) {
     if (currentPage === 'game' && page !== 'game') Audio.stopBgMusic();
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => {
+      n.classList.remove('active');
+      n.removeAttribute('aria-current');
+    });
     const targetPage = document.getElementById('page-' + page);
     if (targetPage) targetPage.classList.add('active');
     const navItem = document.querySelector(`.nav-item[data-page="${page}"]`);
-    if (navItem) navItem.classList.add('active');
+    if (navItem) {
+      navItem.classList.add('active');
+      navItem.setAttribute('aria-current', 'page');
+    }
     const nav = document.querySelector('.bottom-nav');
     if (nav) nav.style.display = page === 'game' ? 'none' : 'flex';
     currentPage = page;
 
     if (page !== 'adventure') selectedIsland = null;
     if (page !== 'story') currentStoryChapter = null;
+    if (page !== 'garden' && gardenRefreshTimer) {
+      clearInterval(gardenRefreshTimer);
+      gardenRefreshTimer = null;
+    }
     switch (page) {
       case 'home': renderHome(); break;
       case 'adventure': renderAdventure(); break;
@@ -181,9 +223,10 @@ const App = (() => {
       const isBoss = i === 14;
       let starStr = completed ? '⭐'.repeat(stars) + '☆'.repeat(3 - stars) : '';
 
+      const bossInfo = Campaign.BOSSES[island.id];
       html += `<div class="level-cell ${completed ? 'completed' : ''} ${current ? 'current' : ''} ${locked ? 'locked' : ''} ${isBoss ? 'boss' : ''}"
                     data-level="${globalIdx}">
-        <span class="level-num">${isBoss ? Campaign.BOSSES[island.id].emoji : (i + 1)}</span>
+        <span class="level-num">${isBoss && bossInfo ? bossInfo.emoji : (i + 1)}</span>
         ${isBoss ? '<span class="boss-icon">BOSS</span>' : ''}
         <span class="level-stars">${starStr}</span>
       </div>`;
@@ -251,14 +294,24 @@ const App = (() => {
   function launchLevel(config) {
     navigateTo('game');
     Audio.startBgMusic();
-    const island = Campaign.ISLANDS[config.islandIndex];
+    const island = Campaign.ISLANDS[config.islandIndex] || config.island;
     setText('gameLevelBadge', `${island.emoji} ${config.localLevel + 1}`);
-    setText('gameMoves', `步数: ${config.moves}`);
+    setText('gameMoves', config.timeLimit > 0 ? `⏰ ${config.timeLimit}s` : `步数: ${config.moves}`);
     updatePotionButtons();
+    // Reset next level button text in case time attack changed it
+    const nextLevelBtn = document.getElementById('nextLevelBtn');
+    if (nextLevelBtn) nextLevelBtn.textContent = '下一关 →';
     Board.startLevel(config);
     Board.startLoop();
     const backBtn = document.getElementById('gameBackBtn');
-    if (backBtn) { backBtn.onclick = () => { Board.phase = 'paused'; showModal('quitModal'); }; }
+    if (backBtn) {
+      backBtn.onclick = () => {
+        if (Board.phase === 'idle' || Board.phase === 'paused') {
+          Board.phase = 'paused';
+          showModal('quitModal');
+        }
+      };
+    }
     updateGameUI(Board.getState());
   }
 
@@ -267,7 +320,11 @@ const App = (() => {
     setText('gameScore', state.score);
     setText('gameTarget', state.targetScore);
     setText('gameCombo', state.combo);
-    setText('gameMoves', `步数: ${state.movesLeft}`);
+    if (state.timeLeft > 0) {
+      setText('gameMoves', `⏰ ${Math.ceil(state.timeLeft)}s`);
+    } else {
+      setText('gameMoves', `步数: ${state.movesLeft}`);
+    }
 
     let objText = `${state.score} / ${state.targetScore}`;
     if (state.objectives) {
@@ -292,12 +349,11 @@ const App = (() => {
     const progressBar = document.getElementById('gameProgressBar');
     if (progressBar) progressBar.style.width = `${pct}%`;
     setText('gameProgressText', objText);
-    if (state.timeLeft > 0) setText('gameMoves', `⏰ ${Math.ceil(state.timeLeft)}s`);
   }
 
   function updatePotionButtons() {
     const data = Storage.get();
-    const potions = ['mana', 'frost', 'fire', 'arcane', 'shadow'];
+    const potions = ['mana', 'frost', 'fire', 'arcane'];
     const effectMap = { mana: 'shuffle', frost: 'time', fire: 'bomb', arcane: 'rainbow', shadow: 'shadow' };
     potions.forEach(pot => {
       const btn = document.getElementById(`potionBtn_${pot}`);
@@ -329,11 +385,14 @@ const App = (() => {
     const stars = Campaign.getLevelStars(state.score, state.targetScore);
 
     const prevHighScore = data.highScores[globalIdx] || 0;
+    const prevStars = data.stars[globalIdx] || 0;
+    const isFirstCompletion = prevStars === 0;
+
     if (state.score > prevHighScore) {
       data.stats.totalScore += (state.score - prevHighScore);
       data.highScores[globalIdx] = state.score;
     }
-    if (!data.stars[globalIdx] || stars > data.stars[globalIdx]) data.stars[globalIdx] = stars;
+    if (stars > prevStars) data.stars[globalIdx] = stars;
 
     let totalStars = 0;
     Object.values(data.stars).forEach(s => totalStars += s);
@@ -342,9 +401,12 @@ const App = (() => {
     if (globalIdx >= data.currentLevel) {
       data.currentLevel = globalIdx + 1;
       data.currentIsland = Math.floor(data.currentLevel / 15);
+    }
+    // Only count levelsCompleted for truly new completions (not replays)
+    if (isFirstCompletion) {
       data.stats.levelsCompleted++;
     }
-    if (config.isBoss) data.stats.bossesDefeated++;
+    if (config.isBoss && isFirstCompletion) data.stats.bossesDefeated++;
 
     const seedReward = Garden.getSeedFromMatch(3, Math.floor(Math.random() * Gems.COUNT));
     if (seedReward) Garden.addSeed(data, seedReward.speciesId);
@@ -378,20 +440,30 @@ const App = (() => {
       setTimeout(() => { const ach = Daily.ACH_MAP[achId]; if (ach) showAchievementToast(ach); }, (i + 1) * 800);
     });
 
+    const totalLevels = Campaign.ISLANDS.length * 15;
+    const isLastLevel = globalIdx + 1 >= totalLevels;
+
     if (config.isBoss) {
       const dialogue = Campaign.getIslandCompleteDialogue(config.island.id);
       if (dialogue.length > 0) {
         document.getElementById('nextLevelBtn').onclick = () => {
           hideModal('completeModal');
-          showDialogue(dialogue, () => { selectedIsland = null; navigateTo('adventure'); });
+          showDialogue(dialogue, () => {
+            selectedIsland = null;
+            if (isLastLevel) {
+              showAchievementToast({ emoji: '🏆', name: '恭喜通关!', desc: '你已完成艾泽拉斯的所有冒险！' });
+              navigateTo('home');
+            } else {
+              navigateTo('adventure');
+            }
+          });
         };
         return;
       }
     }
-    const totalLevels = Campaign.ISLANDS.length * 15;
     document.getElementById('nextLevelBtn').onclick = () => {
       hideModal('completeModal');
-      if (globalIdx + 1 >= totalLevels) {
+      if (isLastLevel) {
         showAchievementToast({ emoji: '🏆', name: '恭喜通关!', desc: '你已完成艾泽拉斯的所有冒险！' });
         navigateTo('home');
       } else {
@@ -403,14 +475,24 @@ const App = (() => {
   function handleLevelFail(state) {
     showModal('failModal');
     document.getElementById('retryBtn').onclick = () => { hideModal('failModal'); if (currentLevelConfig) launchLevel(currentLevelConfig); };
-    document.getElementById('failHomeBtn').onclick = () => { hideModal('failModal'); navigateTo('home'); };
+    document.getElementById('failHomeBtn').onclick = () => { hideModal('failModal'); Board.phase = 'gameover'; navigateTo('home'); };
   }
 
   function renderGarden() {
+    // Clear any existing refresh timer
+    if (gardenRefreshTimer) { clearInterval(gardenRefreshTimer); gardenRefreshTimer = null; }
     const data = Storage.get();
     const container = document.getElementById('gardenContainer');
     if (!container) return;
     const stats = Garden.getGardenStats(data);
+
+    // Auto-refresh garden every 30 seconds while on garden page to show growth progress
+    if (stats.growing > 0) {
+      gardenRefreshTimer = setInterval(() => {
+        if (currentPage === 'garden') renderGarden();
+        else { clearInterval(gardenRefreshTimer); gardenRefreshTimer = null; }
+      }, 30000);
+    }
 
     let html = `<div class="garden-header"><h3>🌿 要塞农场</h3>
       <span class="text-dim" style="font-size:0.75em;">🌱 ${stats.growing} 生长中 | ✨ ${stats.ready} 可收获 | 📖 ${stats.speciesCount}/${stats.totalSpecies} 物种</span></div>`;
@@ -449,7 +531,13 @@ const App = (() => {
       });
       html += '</div></div>';
     }
+    // Add link to potion workshop
+    html += `<div style="margin-top:12px;"><button class="btn btn-secondary btn-block" id="goToPotionBtn">⚗️ 炼金工坊</button></div>`;
+
     container.innerHTML = html;
+
+    const potionBtn = document.getElementById('goToPotionBtn');
+    if (potionBtn) potionBtn.addEventListener('click', () => navigateTo('potion'));
 
     container.querySelectorAll('.garden-plot').forEach(plot => {
       plot.addEventListener('click', () => {
@@ -540,6 +628,11 @@ const App = (() => {
     const container = document.getElementById('potionContainer');
     if (!container) return;
     Potion.renderPotionPage(container, data);
+    // Add back button at top of potion page
+    const backHtml = `<div style="padding:4px 0 8px;"><span class="back-btn" id="potionBackBtn" style="font-size:1.2em;cursor:pointer;">← 返回农场</span></div>`;
+    container.insertAdjacentHTML('afterbegin', backHtml);
+    const backBtn = document.getElementById('potionBackBtn');
+    if (backBtn) backBtn.addEventListener('click', () => navigateTo('garden'));
     container.querySelectorAll('.btn-craft').forEach(btn => {
       btn.addEventListener('click', () => {
         const potionId = btn.dataset.potion;
@@ -566,25 +659,31 @@ const App = (() => {
   function startTimeAttack() {
     Audio.init();
     const config = {
-      rows: 8, cols: 8, moves: 999, timeLimit: 60, targetScore: 1000, gemCount: 6,
+      rows: 8, cols: 8, moves: 999, timeLimit: 60, targetScore: 999999, gemCount: 6,
       obstacles: [], isBoss: false, islandIndex: 0, localLevel: 0, globalIndex: -2,
       island: { id: 'arena', name: '竞技场', emoji: '⏱️' }
     };
     currentLevelConfig = config;
     launchLevel(config);
+    const showTimeAttackResult = (state) => {
+      const data = Storage.get();
+      if (state.score > (data.stats.timeAttackBest || 0)) {
+        data.stats.timeAttackBest = state.score;
+        Storage.save();
+      }
+      document.getElementById('completeEmoji').textContent = '⏱️';
+      document.getElementById('completeTitle').textContent = '竞技场完成！';
+      document.getElementById('completeStars').textContent = '⭐'.repeat(Math.min(3, Math.floor(state.score / 1000)));
+      document.getElementById('completeText').textContent = `60秒得分: ${state.score}`;
+      if (document.getElementById('completeSeedInfo')) document.getElementById('completeSeedInfo').textContent = '🔥 竞技场模式 — 再来一次！';
+      showModal('completeModal');
+      document.getElementById('nextLevelBtn').textContent = '再挑战 ⏱️';
+      document.getElementById('nextLevelBtn').onclick = () => { hideModal('completeModal'); startTimeAttack(); };
+    };
     Board.setCallbacks({
       onScoreChange: updateGameUI,
-      onLevelComplete: (state) => {
-        document.getElementById('completeEmoji').textContent = '⏱️';
-        document.getElementById('completeTitle').textContent = '竞技场完成！';
-        document.getElementById('completeStars').textContent = '⭐'.repeat(Math.min(3, Math.floor(state.score / 1000)));
-        document.getElementById('completeText').textContent = `60秒得分: ${state.score}`;
-        if (document.getElementById('completeSeedInfo')) document.getElementById('completeSeedInfo').textContent = '🔥 竞技场模式 — 再来一次！';
-        showModal('completeModal');
-        document.getElementById('nextLevelBtn').textContent = '再挑战 ⏱️';
-        document.getElementById('nextLevelBtn').onclick = () => { hideModal('completeModal'); startTimeAttack(); };
-      },
-      onLevelFail: handleLevelFail,
+      onLevelComplete: showTimeAttackResult,
+      onLevelFail: showTimeAttackResult,
       onMoveComplete: (state) => { const d = Storage.get(); d.stats.totalMoves++; Storage.save(); }
     });
   }
@@ -673,7 +772,8 @@ const App = (() => {
     if (!ach) return;
     const existing = document.querySelectorAll('.achievement-toast');
     if (existing.length >= 3) existing[0].remove();
-    const topOffset = 60 + existing.length * 52;
+    const currentCount = document.querySelectorAll('.achievement-toast').length;
+    const topOffset = 60 + currentCount * 52;
     const toast = document.createElement('div');
     toast.className = 'achievement-toast';
     toast.style.top = topOffset + 'px';

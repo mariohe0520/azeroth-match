@@ -130,5 +130,26 @@ const Storage = (() => {
     return result;
   }
 
+  // Flush any pending save when the page unloads
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', () => {
+      if (_data && _saveTimer) {
+        clearTimeout(_saveTimer);
+        _saveTimer = null;
+        _doSave();
+      }
+    });
+    // Also save on visibility change (tab switch on mobile)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden' && _data) {
+        if (_saveTimer) {
+          clearTimeout(_saveTimer);
+          _saveTimer = null;
+        }
+        _doSave();
+      }
+    });
+  }
+
   return { load, save, get, reset, migrateV1, defaults };
 })();

@@ -229,7 +229,7 @@ body::before {
   font-size: 0.72em; font-weight: 700; color: var(--text); top: 0; text-shadow: 0 1px 3px rgba(0,0,0,0.6);
 }
 
-#boardContainer { display: flex; justify-content: center; padding: 6px 0; }
+#boardContainer { display: flex; justify-content: center; padding: 6px 0; overflow: hidden; max-width: 100%; }
 #gameCanvas {
   display: block; border-radius: var(--radius-lg); touch-action: none;
   box-shadow: 0 4px 24px rgba(0,0,0,0.4), 0 0 40px rgba(201,168,76,0.08);
@@ -377,6 +377,7 @@ body::before {
   display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
   background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
   z-index: 500; justify-content: center; align-items: center;
+  touch-action: none;
 }
 .modal-overlay.show { display: flex; }
 .modal-content {
@@ -478,3 +479,23 @@ body::before {
   border-left: 3px solid var(--accent2);
   background: linear-gradient(135deg, var(--bg-card) 0%, rgba(179,60,60,0.08) 100%);
 }
+
+/* ======== RESPONSIVE ======== */
+@media (max-width: 340px) {
+  .app { padding-bottom: 60px; }
+  .home-hero { padding: 12px 10px 10px; }
+  .home-hero h2 { font-size: 1.2em; }
+  .home-stats { gap: 4px; }
+  .stat-card { padding: 8px 4px; }
+  .action-card { padding: 12px; gap: 10px; }
+  .game-potions { gap: 4px; }
+  .potion-btn { width: 38px; height: 38px; }
+  .level-grid { grid-template-columns: repeat(5, 1fr); gap: 4px; }
+  .garden-grid { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .bottom-nav { padding-bottom: env(safe-area-inset-bottom, 0px); }
+}
+
+@media (min-width: 441px) {
+  .bottom-nav { border-radius: 0 0 16px 16px; }
+}
+

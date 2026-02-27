@@ -50,7 +50,11 @@ const Daily = (() => {
     { id: 'island_durotar',     name: '杜隆塔尔英雄', emoji: '🏜️', desc: '完成杜隆塔尔', category: 'zones' },
     { id: 'island_stranglethorn',name:'荆棘谷英雄',   emoji: '🌴', desc: '完成荆棘谷', category: 'zones' },
     { id: 'island_ashenvale',   name: '灰谷英雄',     emoji: '🌲', desc: '完成灰谷', category: 'zones' },
+    { id: 'island_tanaris',     name: '塔纳利斯英雄', emoji: '⏳', desc: '完成塔纳利斯', category: 'zones' },
+    { id: 'island_winterspring', name:'冬泉谷英雄',   emoji: '❄️', desc: '完成冬泉谷', category: 'zones' },
+    { id: 'island_outland',     name: '外域征服者',   emoji: '🌀', desc: '完成外域', category: 'zones' },
     { id: 'island_northrend',   name: '诺森德征服者', emoji: '💀', desc: '完成诺森德', category: 'zones' },
+    { id: 'island_pandaria',    name: '潘达利亚英雄', emoji: '🐼', desc: '完成潘达利亚', category: 'zones' },
     { id: 'island_azeroth',     name: '艾泽拉斯守护者',emoji:'🌍', desc: '完成艾泽拉斯之心', category: 'zones' },
 
     // Boss
@@ -186,6 +190,21 @@ const Daily = (() => {
     if (data.stats.totalMoves >= 5000) if (checkAndUnlock(data, 'total_moves_5k')) n.push('total_moves_5k');
     const hour = new Date().getHours();
     if (hour >= 0 && hour < 5) if (checkAndUnlock(data, 'night_owl')) n.push('night_owl');
+
+    // Zone completion achievements
+    const zoneIds = ['elwynn','durotar','stranglethorn','ashenvale','tanaris','winterspring','outland','northrend','pandaria','azeroth'];
+    zoneIds.forEach((zoneId, idx) => {
+      const startLevel = idx * 15;
+      let allCompleted = true;
+      for (let j = 0; j < 15; j++) {
+        if (!data.stars[startLevel + j] || data.stars[startLevel + j] <= 0) { allCompleted = false; break; }
+      }
+      if (allCompleted) {
+        const achId = 'island_' + zoneId;
+        if (checkAndUnlock(data, achId)) n.push(achId);
+      }
+    });
+
     return n;
   }
 
