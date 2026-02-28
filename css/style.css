@@ -229,7 +229,7 @@ body::before {
   font-size: 0.72em; font-weight: 700; color: var(--text); top: 0; text-shadow: 0 1px 3px rgba(0,0,0,0.6);
 }
 
-#boardContainer { display: flex; justify-content: center; padding: 6px 0; overflow: hidden; max-width: 100%; }
+#boardContainer { display: flex; justify-content: center; padding: 6px 0; overflow: visible; max-width: 100%; }
 #gameCanvas {
   display: block; border-radius: var(--radius-lg); touch-action: none;
   box-shadow: 0 4px 24px rgba(0,0,0,0.4), 0 0 40px rgba(201,168,76,0.08);
