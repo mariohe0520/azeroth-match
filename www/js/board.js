@@ -1686,7 +1686,7 @@ const Board = (() => {
         // This cell has a gem (or is a stone-with-gem / ice/vine obstacle)
         if (r !== writeRow) {
           // Move gem down to writeRow
-          const fromY = (cellVisual[r] && cellVisual[r][c]) ? cellVisual[r][c].y : r * cellSize + padding;
+          const fromY = r * cellSize + padding;
           grid[writeRow][c] = grid[r][c];
           grid[r][c] = null;
           if (cellVisual[writeRow] && cellVisual[writeRow][c]) {
@@ -1984,12 +1984,6 @@ const Board = (() => {
         }
       });
       if (this.elapsed >= this.duration) {
-        this.cells.forEach(({ row, col }) => {
-          if (cellVisual[row] && cellVisual[row][col]) {
-            cellVisual[row][col].scale = 1;
-            cellVisual[row][col].alpha = 1;
-          }
-        });
         try {
           if (this.onDone) this.onDone();
         } catch (e) {
@@ -2388,6 +2382,13 @@ const Board = (() => {
           } else if (cellVisual[r][c].scale <= 0 || cellVisual[r][c].alpha <= 0) {
             cellVisual[r][c].scale = 1;
             cellVisual[r][c].alpha = 1;
+          }
+          // When idle with no animations, snap any out-of-bounds gems to correct position
+          if (animations.length === 0 && phase === 'idle') {
+            const expectedY = r * cellSize + padding;
+            if (cellVisual[r][c].y < -cellSize || cellVisual[r][c].y > (rows + 1) * cellSize) {
+              cellVisual[r][c].y = expectedY;
+            }
           }
           const v = cellVisual[r][c];
           Gems.drawGem(ctx, v.x, v.y, cellSize, grid[r][c], v.scale, v.alpha, timestamp);
