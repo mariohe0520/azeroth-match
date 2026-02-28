@@ -27,6 +27,9 @@ const Board = (() => {
   let floatTexts = [];
   let shakeAmount = 0;
   const shakeDecay = 0.88;
+  // Combo flash overlay (for big-combo board-wide flash)
+  let comboFlashAlpha = 0;
+  let comboFlashColor = '#FFD700';
 
   // Game state for current level
   let score = 0;
@@ -152,6 +155,7 @@ const Board = (() => {
     particles = [];
     floatTexts = [];
     shakeAmount = 0;
+    comboFlashAlpha = 0;
 
     // Reset feature states
     hintTimer = 0;
@@ -1415,6 +1419,34 @@ const Board = (() => {
       } catch (e) { /* non-critical */ }
     });
 
+    // Screen shake and board flash — scale with combo and match size for satisfying feel
+    if (allClears.length >= 4 || combo >= 2) {
+      if (combo >= 5) {
+        shakeAmount = Math.max(shakeAmount, 10 + combo * 2);
+        comboFlashAlpha = Math.min(0.5, 0.15 + combo * 0.05);
+        comboFlashColor = combo >= 7 ? '#FF4444' : '#FFD700';
+        Audio.playExplosion();
+      } else if (combo >= 3) {
+        shakeAmount = Math.max(shakeAmount, 6 + combo * 1.5);
+        comboFlashAlpha = Math.min(0.35, 0.08 + combo * 0.04);
+        comboFlashColor = '#FF8844';
+      } else if (combo >= 2) {
+        shakeAmount = Math.max(shakeAmount, 4 + combo * 2);
+        comboFlashAlpha = Math.min(0.2, 0.06 + combo * 0.03);
+        comboFlashColor = '#FFDD44';
+      } else if (allClears.length >= 6) {
+        // Big single match (6+ gems)
+        shakeAmount = Math.max(shakeAmount, 6 + allClears.length);
+        comboFlashAlpha = 0.15;
+        comboFlashColor = '#44DDFF';
+      } else if (allClears.length >= 4) {
+        // 4-5 gem match
+        shakeAmount = Math.max(shakeAmount, 4 + allClears.length);
+        comboFlashAlpha = 0.1;
+        comboFlashColor = '#44FFAA';
+      }
+    }
+
     // Combo chain counter text (progressively bigger/dramatic)
     if (combo >= 2) {
       const mx = allClears.reduce((s, m) => s + m.col, 0) / allClears.length * cellSize + padding + cellSize / 2;
@@ -1422,15 +1454,13 @@ const Board = (() => {
       Effects.spawnChainText(mx, my, combo);
       // Multiplier stack visual
       Effects.showMultiplier(combo, mx, my);
-
-      if (combo >= 5) {
-        shakeAmount = 8 + combo * 2;
-        Audio.playExplosion();
-      } else if (combo >= 3) {
-        shakeAmount = 5 + combo * 1.5;
-      } else {
-        shakeAmount = 3 + combo * 2;
-      }
+    } else if (allClears.length >= 4) {
+      // Big single match — show gem count text
+      const mx = allClears.reduce((s, m) => s + m.col, 0) / allClears.length * cellSize + padding + cellSize / 2;
+      const my = allClears.reduce((s, m) => s + m.row, 0) / allClears.length * cellSize + padding;
+      const labels = ['', '', '', '', '4连击!', '5连击!', '6连击!', '7连击!'];
+      const label = labels[Math.min(allClears.length, labels.length - 1)] || `${allClears.length}消!`;
+      spawnFloatText(mx, my - 10, label, '#FFD700', 1.3);
     }
 
     // Feature 3: Rhythm bonus text
@@ -1478,39 +1508,61 @@ const Board = (() => {
 
     // Clear animation
     const clearAnim = new ClearAnim(allClears, 0.25, () => {
-      // Create special gems before clearing
+      // Apply special gem creation / clear cells
+      // Two-pass: first mark which cells become special, then clear the rest
+      const becomeSpecialSet = new Set();
+      allClears.forEach(cell => {
+        if (cell._becomeSpecial) {
+          becomeSpecialSet.add(`${cell.row},${cell.col}`);
+        }
+      });
+
       allClears.forEach(cell => {
         try {
           if (cell._becomeSpecial) {
+            // Transform this cell into a special gem (stays on board)
             grid[cell.row][cell.col] = Gems.createGem(cell._becomeSpecial.type);
             grid[cell.row][cell.col].special = cell._becomeSpecial.special;
             if (cellVisual[cell.row] && cellVisual[cell.row][cell.col]) {
-              cellVisual[cell.row][cell.col].scale = 1;
+              cellVisual[cell.row][cell.col].scale = 1.2; // pop-in scale
               cellVisual[cell.row][cell.col].alpha = 1;
+              cellVisual[cell.row][cell.col].y = cell.row * cellSize + padding;
             }
           } else {
+            // Clear this cell so gravity can fill it
             const gem = grid[cell.row] && grid[cell.row][cell.col];
             if (gem && !(gem.obstacle && gem.obstacle.id === 'stone')) {
               grid[cell.row][cell.col] = null;
+              // Reset visual so it doesn't render before drop fills it
+              if (cellVisual[cell.row] && cellVisual[cell.row][cell.col]) {
+                cellVisual[cell.row][cell.col].scale = 0;
+                cellVisual[cell.row][cell.col].alpha = 0;
+              }
             }
           }
         } catch (e) {
-          // If clearing a cell fails, just null it
-          try { grid[cell.row][cell.col] = null; } catch (e2) {}
+          // If clearing a cell fails, force null it — never leave corrupted state
+          try {
+            grid[cell.row][cell.col] = null;
+            if (cellVisual[cell.row] && cellVisual[cell.row][cell.col]) {
+              cellVisual[cell.row][cell.col].scale = 0;
+              cellVisual[cell.row][cell.col].alpha = 0;
+            }
+          } catch (e2) {}
         }
       });
 
       try {
         const drops = dropAndFill();
         if (drops.length > 0) {
-          animations.push(new DropAnim(drops, 0.3, () => processMatchChain()));
+          animations.push(new DropAnim(drops, 0.35, () => processMatchChain()));
         } else {
           processMatchChain();
         }
       } catch (e) {
         console.error('[AzerothMatch] Drop/fill error:', e);
         validateAndRepairBoard();
-        phase = 'idle';
+        processMatchChain();
       }
     });
     animations.push(clearAnim);
@@ -1609,54 +1661,79 @@ const Board = (() => {
 
   function dropAndFill() {
     const drops = [];
+    const numTypes = levelConfig ? (levelConfig.gemCount || Gems.COUNT) : Gems.COUNT;
 
     for (let c = 0; c < cols; c++) {
-      let emptyRow = rows - 1;
+      // Phase 1: compact existing gems downward (gravity)
+      let writeRow = rows - 1; // next slot to write a gem into (bottom-most empty)
       for (let r = rows - 1; r >= 0; r--) {
         const cell = grid[r][c];
-        if (cell !== null && !(cell.obstacle && cell.obstacle.id === 'stone' && cell.type === null)) {
-          if (r !== emptyRow) {
-            grid[emptyRow][c] = grid[r][c];
-            grid[r][c] = null;
-            const fromY = cellVisual[r][c].y;
-            cellVisual[emptyRow][c].x = c * cellSize + padding;
-            cellVisual[emptyRow][c].scale = 1;
-            cellVisual[emptyRow][c].alpha = 1;
-            drops.push({ row: emptyRow, col: c, fromY });
-          }
-          emptyRow--;
-        } else if (cell && cell.obstacle && cell.obstacle.id === 'stone') {
-          emptyRow = r - 1;
+        if (cell === null) {
+          // empty — keep scanning upward, writeRow stays
+          continue;
         }
+        if (cell.obstacle && cell.obstacle.id === 'stone' && cell.type === null) {
+          // impassable stone: reset writeRow to just above it
+          writeRow = r - 1;
+          continue;
+        }
+        // This cell has a gem (or is a stone-with-gem / ice/vine obstacle)
+        if (r !== writeRow) {
+          // Move gem down to writeRow
+          const fromY = (cellVisual[r] && cellVisual[r][c]) ? cellVisual[r][c].y : r * cellSize + padding;
+          grid[writeRow][c] = grid[r][c];
+          grid[r][c] = null;
+          if (cellVisual[writeRow] && cellVisual[writeRow][c]) {
+            cellVisual[writeRow][c].x = c * cellSize + padding;
+            cellVisual[writeRow][c].y = fromY;   // start from source position for smooth animation
+            cellVisual[writeRow][c].scale = 1;
+            cellVisual[writeRow][c].alpha = 1;
+          }
+          drops.push({ row: writeRow, col: c, fromY });
+        } else {
+          // Gem is already in the right slot; ensure valid visual state
+          if (cellVisual[r] && cellVisual[r][c]) {
+            if (cellVisual[r][c].scale <= 0) cellVisual[r][c].scale = 1;
+            if (cellVisual[r][c].alpha <= 0) cellVisual[r][c].alpha = 1;
+          }
+        }
+        writeRow--;
       }
-      // Fill from top
-      for (let r = emptyRow; r >= 0; r--) {
-        if (grid[r][c] === null) {
-          const numTypes = levelConfig ? (levelConfig.gemCount || Gems.COUNT) : Gems.COUNT;
-          grid[r][c] = Gems.createGem(Math.floor(Math.random() * numTypes));
-          const fromY = -(emptyRow - r + 1) * cellSize;
+
+      // Phase 2: fill empty slots at the top with new gems
+      // All rows from writeRow down to 0 should now be empty (null)
+      for (let r = writeRow; r >= 0; r--) {
+        if (grid[r][c] !== null) continue; // skip if already filled (e.g. stone above)
+        grid[r][c] = Gems.createGem(Math.floor(Math.random() * numTypes));
+        // New gems fall from above the board; stagger them by position
+        const fromY = -(writeRow - r + 1) * cellSize - padding;
+        if (cellVisual[r] && cellVisual[r][c]) {
           cellVisual[r][c].x = c * cellSize + padding;
+          cellVisual[r][c].y = fromY;   // start above screen for drop animation
           cellVisual[r][c].scale = 1;
           cellVisual[r][c].alpha = 1;
-          drops.push({ row: r, col: c, fromY });
         }
+        drops.push({ row: r, col: c, fromY });
       }
     }
 
-    // Safety pass: check ALL cells and fill any remaining nulls
+    // Phase 3: Safety pass — catch any cells that are still null (shouldn't happen,
+    // but protects against edge cases with stone obstacles or L/T special gem creation)
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         if (grid[r][c] === null) {
-          const numTypes = levelConfig ? (levelConfig.gemCount || Gems.COUNT) : Gems.COUNT;
           grid[r][c] = Gems.createGem(Math.floor(Math.random() * numTypes));
-          cellVisual[r][c].x = c * cellSize + padding;
-          cellVisual[r][c].y = r * cellSize + padding;
-          cellVisual[r][c].scale = 1;
-          cellVisual[r][c].alpha = 1;
-          drops.push({ row: r, col: c, fromY: -(Math.random() * 2 + 1) * cellSize });
+          const fromY = -(rows - r) * cellSize;
+          if (cellVisual[r] && cellVisual[r][c]) {
+            cellVisual[r][c].x = c * cellSize + padding;
+            cellVisual[r][c].y = fromY;
+            cellVisual[r][c].scale = 1;
+            cellVisual[r][c].alpha = 1;
+          }
+          drops.push({ row: r, col: c, fromY });
         }
-        // Ensure all non-null gems have valid visual state
-        if (grid[r][c] && grid[r][c].type !== null) {
+        // Ensure all non-null gems have valid visual state (never invisible)
+        if (grid[r][c] && grid[r][c].type !== null && cellVisual[r] && cellVisual[r][c]) {
           if (cellVisual[r][c].scale <= 0) cellVisual[r][c].scale = 1;
           if (cellVisual[r][c].alpha <= 0) cellVisual[r][c].alpha = 1;
         }
@@ -1943,7 +2020,7 @@ const Board = (() => {
         });
         if (this.elapsed >= this.duration) {
           this.landed = true;
-          // snap to grid
+          // snap to grid and ensure all visuals are valid
           this.drops.forEach(d => {
             if (cellVisual[d.row] && cellVisual[d.row][d.col]) {
               cellVisual[d.row][d.col].x = d.col * cellSize + padding;
@@ -1952,6 +2029,10 @@ const Board = (() => {
               cellVisual[d.row][d.col].alpha = 1;
             }
           });
+          // Small landing thud shake for large drops
+          if (this.drops.length >= 4 && !prefersReducedMotion) {
+            shakeAmount = Math.max(shakeAmount, Math.min(3, this.drops.length * 0.5));
+          }
         }
         return true;
       }
@@ -2323,6 +2404,16 @@ const Board = (() => {
     renderParticles(ctx);
     renderFloatTexts(ctx);
 
+    // Combo flash overlay — board-wide color wash on big combos/matches
+    if (comboFlashAlpha > 0 && !prefersReducedMotion) {
+      ctx.save();
+      ctx.globalAlpha = comboFlashAlpha;
+      ctx.fillStyle = comboFlashColor;
+      roundRect(ctx, 0, 0, w, h, 16);
+      ctx.fill();
+      ctx.restore();
+    }
+
     // Boss HP bar (if boss level)
     if (bossMaxHp > 0) {
       renderBossBar(ctx, w);
@@ -2491,6 +2582,11 @@ const Board = (() => {
       f.alpha = t < 0.2 ? t / 0.2 : 1 - (t - 0.2) / 0.8;
       f.scale += (f.targetScale - f.scale) * 0.15;
       if (t > 0.3) f.targetScale = 0.9;
+    }
+
+    // Decay combo flash overlay
+    if (comboFlashAlpha > 0) {
+      comboFlashAlpha = Math.max(0, comboFlashAlpha - dt * 2.5);
     }
 
     // Skip non-essential updates when paused

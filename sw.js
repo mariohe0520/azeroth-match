@@ -3,7 +3,7 @@
  * Network-first strategy to prevent stale cache issues
  */
 
-const CACHE_NAME = 'azeroth-match-v4';
+const CACHE_NAME = 'azeroth-match-v5';
 const ASSETS = [
   './',
   './index.html',
