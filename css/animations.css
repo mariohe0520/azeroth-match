@@ -96,6 +96,37 @@ body.weather-night::before {
     radial-gradient(ellipse at 50% 50%, rgba(20,30,80,0.04) 0%, transparent 60%) !important;
 }
 
+/* ======== COMBO SCREEN SHAKE ======== */
+@keyframes comboShakeSm {
+  0%,100% { transform: translate(0,0); }
+  20% { transform: translate(-2px, 1px); }
+  40% { transform: translate(2px, -1px); }
+  60% { transform: translate(-1px, 2px); }
+  80% { transform: translate(1px, -1px); }
+}
+@keyframes comboShakeMd {
+  0%,100% { transform: translate(0,0); }
+  15% { transform: translate(-3px, 2px); }
+  30% { transform: translate(3px, -2px); }
+  45% { transform: translate(-2px, 3px); }
+  60% { transform: translate(2px, -2px); }
+  75% { transform: translate(-3px, 1px); }
+}
+@keyframes comboShakeLg {
+  0%,100% { transform: translate(0,0); }
+  10% { transform: translate(-5px, 3px); }
+  20% { transform: translate(5px, -3px); }
+  30% { transform: translate(-4px, 4px); }
+  40% { transform: translate(4px, -3px); }
+  50% { transform: translate(-5px, 2px); }
+  60% { transform: translate(3px, -4px); }
+  70% { transform: translate(-3px, 3px); }
+  80% { transform: translate(4px, -2px); }
+}
+.board-shake-sm #boardContainer { animation: comboShakeSm 0.3s ease-out; }
+.board-shake-md #boardContainer { animation: comboShakeMd 0.35s ease-out; }
+.board-shake-lg #boardContainer { animation: comboShakeLg 0.4s ease-out; }
+
 /* ======== HINT PULSE ======== */
 .hint-active #boardContainer {
   position: relative;

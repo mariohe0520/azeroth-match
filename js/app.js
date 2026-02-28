@@ -60,6 +60,7 @@ const App = (() => {
           if (state.timeLeft > 0 && state.timeLeft < 10) movesEl.classList.add('timer-urgent');
           else movesEl.classList.remove('timer-urgent');
         }
+        updateRageMeterUI(state);
       },
       onLevelComplete: handleLevelComplete,
       onLevelFail: handleLevelFail,
@@ -251,6 +252,7 @@ const App = (() => {
           if (state.timeLeft > 0 && state.timeLeft < 10) movesEl.classList.add('timer-urgent');
           else movesEl.classList.remove('timer-urgent');
         }
+        updateRageMeterUI(state);
       },
       onLevelComplete: handleLevelComplete,
       onLevelFail: handleLevelFail,
@@ -303,6 +305,15 @@ const App = (() => {
     if (nextLevelBtn) nextLevelBtn.textContent = '下一关 →';
     Board.startLevel(config);
     Board.startLoop();
+    // Reset rage meter UI
+    const rageBar = document.getElementById('rageMeterBar');
+    const rageText = document.getElementById('rageMeterText');
+    const rageContainer = document.getElementById('rageMeterContainer');
+    if (rageBar) { rageBar.style.width = '0%'; rageBar.className = 'rage-meter-bar'; }
+    if (rageText) rageText.textContent = '充能中…';
+    if (rageContainer) rageContainer.classList.remove('rage-ready-glow');
+    const rageLabel = document.getElementById('rageMeterLabel');
+    if (rageLabel) rageLabel.textContent = '⚡ 战斗能量';
     const backBtn = document.getElementById('gameBackBtn');
     if (backBtn) {
       backBtn.onclick = () => {
@@ -486,8 +497,8 @@ const App = (() => {
     if (!container) return;
     const stats = Garden.getGardenStats(data);
 
-    // Auto-refresh garden every 30 seconds while on garden page to show growth progress
-    if (stats.growing > 0) {
+    // Auto-refresh garden every 30 seconds while on garden page to show harvest badges appearing
+    if (stats.growing > 0 || stats.ready > 0) {
       gardenRefreshTimer = setInterval(() => {
         if (currentPage === 'garden') renderGarden();
         else { clearInterval(gardenRefreshTimer); gardenRefreshTimer = null; }
@@ -667,21 +678,44 @@ const App = (() => {
     launchLevel(config);
     const showTimeAttackResult = (state) => {
       const data = Storage.get();
-      if (state.score > (data.stats.timeAttackBest || 0)) {
+      const prevBest = data.stats.timeAttackBest || 0;
+      const isNewBest = state.score > prevBest;
+      if (isNewBest) {
         data.stats.timeAttackBest = state.score;
         Storage.save();
       }
-      document.getElementById('completeEmoji').textContent = '⏱️';
-      document.getElementById('completeTitle').textContent = '竞技场完成！';
-      document.getElementById('completeStars').textContent = '⭐'.repeat(Math.min(3, Math.floor(state.score / 1000)));
-      document.getElementById('completeText').textContent = `60秒得分: ${state.score}`;
-      if (document.getElementById('completeSeedInfo')) document.getElementById('completeSeedInfo').textContent = '🔥 竞技场模式 — 再来一次！';
+      // Star rating: 1★ = 500, 2★ = 1500, 3★ = 3000
+      const starCount = state.score >= 3000 ? 3 : state.score >= 1500 ? 2 : state.score >= 500 ? 1 : 0;
+      const starStr = '⭐'.repeat(starCount) + '☆'.repeat(3 - starCount);
+      document.getElementById('completeEmoji').textContent = isNewBest ? '🏆' : '⏱️';
+      document.getElementById('completeTitle').textContent = isNewBest ? '新纪录！' : '竞技场结算！';
+      document.getElementById('completeStars').textContent = starStr;
+      document.getElementById('completeText').textContent = `⏱️ 60秒得分: ${state.score}`;
+      const seedInfo = document.getElementById('completeSeedInfo');
+      if (seedInfo) {
+        if (isNewBest) {
+          seedInfo.textContent = `🔥 New Best! 上次: ${prevBest}`;
+          seedInfo.style.color = '#FFD700';
+        } else {
+          seedInfo.textContent = `📊 最高纪录: ${prevBest}`;
+          seedInfo.style.color = '';
+        }
+      }
       showModal('completeModal');
       document.getElementById('nextLevelBtn').textContent = '再挑战 ⏱️';
       document.getElementById('nextLevelBtn').onclick = () => { hideModal('completeModal'); startTimeAttack(); };
     };
     Board.setCallbacks({
-      onScoreChange: updateGameUI,
+      onScoreChange: (state) => {
+        updateGameUI(state);
+        if (state.combo >= 3) showComboFlash(state.combo);
+        const movesEl = document.getElementById('gameMoves');
+        if (movesEl) {
+          if (state.timeLeft > 0 && state.timeLeft < 10) movesEl.classList.add('timer-urgent');
+          else movesEl.classList.remove('timer-urgent');
+        }
+        updateRageMeterUI(state);
+      },
       onLevelComplete: showTimeAttackResult,
       onLevelFail: showTimeAttackResult,
       onMoveComplete: (state) => { const d = Storage.get(); d.stats.totalMoves++; Storage.save(); }
@@ -697,7 +731,7 @@ const App = (() => {
     currentLevelConfig = { ...dailyConfig, islandIndex: 0, localLevel: 0, island: { id: 'daily', name: '世界任务', emoji: '📅' }, isBoss: false, globalIndex: -1 };
     launchLevel(currentLevelConfig);
     Board.setCallbacks({
-      onScoreChange: updateGameUI,
+      onScoreChange: (state) => { updateGameUI(state); updateRageMeterUI(state); },
       onLevelComplete: (state) => {
         Daily.completeDailyChallenge(data, state.score);
         Daily.checkAllAchievements(data);
@@ -773,14 +807,29 @@ const App = (() => {
     const existing = document.querySelectorAll('.achievement-toast');
     if (existing.length >= 3) existing[0].remove();
     const currentCount = document.querySelectorAll('.achievement-toast').length;
-    const topOffset = 60 + currentCount * 52;
+    const topOffset = 60 + currentCount * 68;
     const toast = document.createElement('div');
     toast.className = 'achievement-toast';
     toast.style.top = topOffset + 'px';
-    toast.innerHTML = `<span class="toast-emoji">${ach.emoji}</span><div class="toast-text"><div class="toast-title">${ach.name}</div><div class="toast-desc">${ach.desc || ''}</div></div>`;
+
+    // Build sparkle dots
+    let sparkleHTML = '<div class="toast-sparkle" aria-hidden="true">';
+    const sparklePositions = [
+      { x: -8, y: -8 }, { x: 108, y: -6 }, { x: -10, y: 40 }, { x: 106, y: 38 },
+      { x: 50, y: -12 }, { x: 20, y: -6 }, { x: 80, y: -8 }
+    ];
+    sparklePositions.forEach((pos, i) => {
+      const delay = i * 0.05;
+      const sx = (Math.random() - 0.5) * 30;
+      const sy = (Math.random() - 0.5) * 30 - 15;
+      sparkleHTML += `<div class="toast-sparkle-dot" style="left:${pos.x}px;top:${pos.y}px;animation-delay:${delay}s;--sx:${sx}px;--sy:${sy}px;"></div>`;
+    });
+    sparkleHTML += '</div>';
+
+    toast.innerHTML = `${sparkleHTML}<span class="toast-emoji">${ach.emoji}</span><div class="toast-text"><div class="toast-title">${ach.name}</div><div class="toast-desc">${ach.desc || ''}</div></div>`;
     document.body.appendChild(toast);
     Audio.playAchievement();
-    setTimeout(() => { if (toast.parentNode) toast.remove(); }, 3200);
+    setTimeout(() => { if (toast.parentNode) toast.remove(); }, 3500);
   }
 
   function showComboFlash(combo) {
@@ -797,7 +846,40 @@ const App = (() => {
     const gamePage = document.getElementById('page-game');
     if (gamePage) gamePage.appendChild(el);
     else document.body.appendChild(el);
+
+    // CSS screen shake on the board container
+    const gamePageEl = document.getElementById('page-game');
+    if (gamePageEl) {
+      gamePageEl.classList.remove('board-shake-sm', 'board-shake-md', 'board-shake-lg');
+      void gamePageEl.offsetWidth; // reflow to restart animation
+      if (combo >= 8) gamePageEl.classList.add('board-shake-lg');
+      else if (combo >= 5) gamePageEl.classList.add('board-shake-md');
+      else gamePageEl.classList.add('board-shake-sm');
+      setTimeout(() => gamePageEl.classList.remove('board-shake-sm', 'board-shake-md', 'board-shake-lg'), 450);
+    }
     setTimeout(() => { if (el.parentNode) el.remove(); }, 900);
+  }
+
+  function updateRageMeterUI(state) {
+    const pct = Effects.getRagePct();
+    const bar = document.getElementById('rageMeterBar');
+    const text = document.getElementById('rageMeterText');
+    const label = document.getElementById('rageMeterLabel');
+    const container = document.getElementById('rageMeterContainer');
+    if (!bar || !text) return;
+    bar.style.width = Math.round(pct * 100) + '%';
+    const isReady = Effects.isRageReady();
+    if (isReady) {
+      bar.className = 'rage-meter-bar rage-ready';
+      text.textContent = '🗡️ 点击宝石释放斩击！';
+      if (container) container.classList.add('rage-ready-glow');
+      if (label) label.textContent = '⚡ 战斗能量 — 已充满！';
+    } else {
+      bar.className = 'rage-meter-bar';
+      text.textContent = pct >= 0.5 ? '能量蓄积中…' : '充能中…';
+      if (container) container.classList.remove('rage-ready-glow');
+      if (label) label.textContent = '⚡ 战斗能量';
+    }
   }
 
   function setText(id, text) { const el = document.getElementById(id); if (el) el.textContent = text; }

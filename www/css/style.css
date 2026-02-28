@@ -442,22 +442,93 @@ body::before {
 
 /* ======== TOAST ======== */
 .achievement-toast {
-  position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
-  background: var(--bg-card); border: 1px solid rgba(201,168,76,0.3);
-  border-radius: 12px; padding: 10px 16px; display: flex; align-items: center; gap: 10px;
-  z-index: 600; box-shadow: 0 8px 30px rgba(0,0,0,0.5);
-  animation: toastIn 0.3s ease-out, toastOut 0.3s ease-in 2.8s forwards;
+  position: fixed; top: 60px; left: 50%; transform: translateX(-50%) translateY(-80px);
+  background: linear-gradient(135deg, var(--bg-card) 0%, rgba(201,168,76,0.08) 100%);
+  border: 2px solid var(--gold);
+  border-radius: 14px; padding: 10px 16px; display: flex; align-items: center; gap: 10px;
+  z-index: 600;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.6), 0 0 20px rgba(201,168,76,0.25), inset 0 1px 0 rgba(255,255,255,0.06);
+  animation: toastSlideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards, toastOut 0.35s ease-in 2.8s forwards;
+  min-width: 220px; max-width: 300px;
 }
-@keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(-20px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
-@keyframes toastOut { to { opacity: 0; transform: translateX(-50%) translateY(-20px); } }
-.toast-emoji { font-size: 1.5em; }
-.toast-text { }
-.toast-title { font-weight: 700; font-size: 0.85em; }
-.toast-desc { font-size: 0.7em; color: var(--text-dim); }
+@keyframes toastSlideIn {
+  0% { opacity: 0; transform: translateX(-50%) translateY(-80px) scale(0.85); }
+  60% { opacity: 1; transform: translateX(-50%) translateY(6px) scale(1.03); }
+  100% { opacity: 1; transform: translateX(-50%) translateY(0px) scale(1); }
+}
+@keyframes toastOut {
+  0% { opacity: 1; transform: translateX(-50%) translateY(0px) scale(1); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-30px) scale(0.9); }
+}
+.achievement-toast::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+  border-radius: 14px 14px 0 0;
+}
+.toast-emoji { font-size: 1.6em; flex-shrink: 0; }
+.toast-sparkle {
+  position: absolute; pointer-events: none; top: 0; left: 0; width: 100%; height: 100%;
+  overflow: hidden; border-radius: 14px;
+}
+.toast-sparkle-dot {
+  position: absolute; width: 4px; height: 4px; border-radius: 50%;
+  background: var(--gold); animation: sparklePop 0.6s ease-out forwards;
+}
+@keyframes sparklePop {
+  0% { opacity: 1; transform: scale(1) translate(0, 0); }
+  100% { opacity: 0; transform: scale(0) translate(var(--sx), var(--sy)); }
+}
+.toast-text { min-width: 0; }
+.toast-title { font-weight: 700; font-size: 0.88em; color: var(--gold); }
+.toast-desc { font-size: 0.72em; color: var(--text-dim); margin-top: 1px; }
 
 /* Timer urgent */
 .timer-urgent { animation: timerPulse 0.5s infinite alternate; }
 @keyframes timerPulse { to { background: #FF0000; } }
+
+/* ======== RAGE METER ======== */
+.rage-meter-container {
+  display: flex; align-items: center; gap: 8px;
+  margin: 4px 0; padding: 0 2px;
+}
+.rage-meter-label {
+  font-size: 0.65em; font-weight: 700; color: var(--text-dim);
+  white-space: nowrap; min-width: 60px; text-transform: uppercase; letter-spacing: 0.4px;
+}
+.rage-meter-bar-bg {
+  flex: 1; height: 18px; background: rgba(0,0,0,0.35);
+  border-radius: 9px; overflow: hidden; position: relative;
+  border: 1px solid rgba(179,60,60,0.2);
+}
+.rage-meter-bar {
+  height: 100%; border-radius: 9px; transition: width 0.25s ease;
+  background: linear-gradient(90deg, #882200, #CC4400);
+  position: relative;
+}
+.rage-meter-bar.rage-ready {
+  background: linear-gradient(90deg, #FF4400, #FF8800, #FFAA00);
+  animation: ragePulseBar 0.6s infinite alternate;
+}
+@keyframes ragePulseBar {
+  from { box-shadow: 0 0 6px rgba(255,100,0,0.4); }
+  to   { box-shadow: 0 0 14px rgba(255,140,0,0.8); }
+}
+.rage-meter-text {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.62em; font-weight: 700; color: rgba(255,255,255,0.8);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.8); pointer-events: none;
+  letter-spacing: 0.2px;
+}
+.rage-ready-glow .rage-meter-label {
+  color: #FFAA44;
+  animation: rageLabelPulse 0.7s infinite alternate;
+}
+@keyframes rageLabelPulse {
+  from { color: #FF6600; }
+  to   { color: #FFD700; }
+}
 
 /* ======== SCROLLBAR ======== */
 .page::-webkit-scrollbar { width: 4px; }

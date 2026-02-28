@@ -56,6 +56,22 @@ const Audio = (() => {
     else { playTone(523, 0.1, 'sine', 0.25); playTone(659, 0.1, 'sine', 0.22); playTone(784, 0.12, 'sine', 0.2); }
   }
 
+  // Escalating pitch chain - each subsequent match in a combo chain plays higher
+  const CHAIN_SCALE = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25, 587.33, 659.25, 698.46, 783.99, 880.00, 987.77, 1046.50];
+
+  function playChainMatch(chainIndex) {
+    if (!enabled || !audioCtx) return;
+    const idx = Math.min(chainIndex, CHAIN_SCALE.length - 1);
+    const freq = CHAIN_SCALE[idx];
+    const vol = Math.min(0.35, 0.2 + chainIndex * 0.015);
+    playTone(freq, 0.15, 'sine', vol);
+    playTone(freq * 1.5, 0.08, 'sine', vol * 0.4, 0.03);
+    // Add shimmer on higher chains
+    if (chainIndex >= 3) {
+      playTone(freq * 2, 0.1, 'sine', 0.06, 0.05);
+    }
+  }
+
   function playCombo(n) {
     if (!enabled || !audioCtx) return;
     const baseIdx = Math.min(n - 1, PENTATONIC.length - 1);
@@ -64,6 +80,64 @@ const Audio = (() => {
     playTone(PENTATONIC[Math.min(baseIdx + 2, PENTATONIC.length - 1)], 0.18, 'triangle', 0.28, 0.16);
     if (n >= 4) playTone(PENTATONIC[Math.min(baseIdx + 2, PENTATONIC.length - 1)] * 1.5, 0.25, 'sine', 0.15, 0.2);
     if (n >= 6) PENTATONIC.forEach((f, i) => playTone(f * 2, 0.2, 'sine', 0.1, i * 0.06));
+  }
+
+  // Dramatic 5+ combo sound — triumphant fanfare
+  function playMegaCombo(n) {
+    if (!enabled || !audioCtx) return;
+    // Power chord
+    playChord([261.63, 329.63, 392.00], 0.15, 'sawtooth', 0.12);
+    // Ascending arpeggio
+    const arp = [523.25, 659.25, 784.00, 1046.50, 1318.51];
+    arp.forEach((f, i) => {
+      playTone(f, 0.2 + i * 0.03, 'sine', 0.18 - i * 0.02, i * 0.06);
+    });
+    // Deep impact
+    playTone(65.41, 0.4, 'sine', 0.15);
+    // Shimmer
+    if (n >= 8) {
+      for (let i = 0; i < 6; i++) {
+        playTone(1046.50 + i * 100, 0.3, 'sine', 0.05, 0.1 + i * 0.04);
+      }
+    }
+  }
+
+  function playExplosion() {
+    if (!enabled || !audioCtx) return;
+    // White noise burst via oscillator trick
+    playTone(80, 0.15, 'sawtooth', 0.12);
+    playTone(120, 0.1, 'square', 0.08, 0.02);
+    playTone(200, 0.08, 'sawtooth', 0.06, 0.04);
+  }
+
+  function playPerfect() {
+    if (!enabled || !audioCtx) return;
+    [523.25, 659.25, 784.00, 1046.50].forEach((f, i) => playTone(f, 0.25, 'sine', 0.25, i * 0.08));
+    playChord([523.25, 784.00, 1046.50], 0.5, 'sine', 0.15, 0.35);
+  }
+
+  function playRageReady() {
+    if (!enabled || !audioCtx) return;
+    playTone(130.81, 0.2, 'sawtooth', 0.15);
+    playTone(164.81, 0.2, 'sawtooth', 0.15, 0.1);
+    playTone(196.00, 0.3, 'sawtooth', 0.18, 0.2);
+    playTone(261.63, 0.4, 'sine', 0.2, 0.3);
+  }
+
+  function playRageActivate() {
+    if (!enabled || !audioCtx) return;
+    for (let i = 0; i < 8; i++) {
+      playTone(130.81 + i * 50, 0.15, 'sawtooth', 0.12, i * 0.03);
+    }
+    playTone(65.41, 0.5, 'sine', 0.2, 0.2);
+  }
+
+  function playBossAttack() {
+    if (!enabled || !audioCtx) return;
+    playTone(80, 0.3, 'sawtooth', 0.2);
+    playTone(60, 0.4, 'square', 0.15, 0.1);
+    playTone(100, 0.2, 'sawtooth', 0.1, 0.2);
+    playTone(40, 0.5, 'sine', 0.12, 0.15);
   }
 
   function playLevelUp() {
@@ -159,7 +233,8 @@ const Audio = (() => {
   return {
     init, setEnabled, isEnabled,
     playTone, playChord,
-    playMatch, playMatchGem, playCombo,
+    playMatch, playMatchGem, playCombo, playChainMatch, playMegaCombo,
+    playExplosion, playPerfect, playRageReady, playRageActivate, playBossAttack,
     playLevelUp, playFail,
     playSwap, playInvalid, playSelect,
     playPlant, playHarvest, playCraft,

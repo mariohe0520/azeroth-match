@@ -130,6 +130,18 @@ const Board = (() => {
     }
   }
 
+  // Ice block tracking for "ice block" levels
+  let iceBlocks = {}; // "row,col" -> { hp: N }
+  // Falling-sand mode
+  let fallingSandMode = false;
+  // Boss attack timer
+  let bossAttackTimer = 0;
+  let bossAttackInterval = 8; // seconds between attacks
+  let bossPhase = 1;
+  // Move score tracking
+  let moveStartScore = 0;
+  let lastMoveGemCount = 0;
+
   function startLevel(config) {
     applyConfig(config);
     score = 0;
@@ -159,6 +171,23 @@ const Board = (() => {
     lastMatchTime = 0;
     hoverCell = null;
     previewSwapGhost = null;
+
+    // Reset premium effects
+    Effects.resetAll();
+    iceBlocks = {};
+    fallingSandMode = config.fallingSand || false;
+    bossAttackTimer = 0;
+    bossAttackInterval = 8;
+    bossPhase = 1;
+    moveStartScore = 0;
+    lastMoveGemCount = 0;
+
+    // Setup ice blocks from config
+    if (config.iceBlocks) {
+      config.iceBlocks.forEach(ib => {
+        iceBlocks[`${ib.row},${ib.col}`] = { hp: ib.hp || 2 };
+      });
+    }
 
     updateCanvasSize();
     generateGrid(config.obstacles || []);
@@ -1037,10 +1066,60 @@ const Board = (() => {
 
   function handleMove(cell1, cell2) {
     if (phase !== 'idle') return;
+
+    // Check if rage mode is active - special tap handling
+    if (Effects.isRageActive()) {
+      Effects.consumeRage();
+      phase = 'animating';
+      Audio.playRageActivate();
+      Effects.hapticHeavy();
+      shakeAmount = 15;
+      // Clear entire row AND column of tapped cell
+      const rageCells = [];
+      for (let c = 0; c < cols; c++) {
+        if (grid[cell1.row][c] && grid[cell1.row][c].type !== null) {
+          rageCells.push({ row: cell1.row, col: c });
+        }
+      }
+      for (let r = 0; r < rows; r++) {
+        if (r !== cell1.row && grid[r][cell1.col] && grid[r][cell1.col].type !== null) {
+          rageCells.push({ row: r, col: cell1.col });
+        }
+      }
+      score += rageCells.length * 20;
+      rageCells.forEach(c => {
+        const v = cellVisual[c.row] && cellVisual[c.row][c.col];
+        if (v) Effects.spawnExplosion(v.x + cellSize / 2, v.y + cellSize / 2, (grid[c.row][c.col] || {}).type || 0, 8);
+      });
+      const clearAnim = new ClearAnim(rageCells, 0.3, () => {
+        rageCells.forEach(c => { grid[c.row][c.col] = null; });
+        const drops = dropAndFill();
+        if (drops.length > 0) {
+          Effects.triggerBoardBounce(6);
+          animations.push(new DropAnim(drops, 0.3, () => { combo = 0; processMatchChain(); }));
+        } else { combo = 0; processMatchChain(); }
+      });
+      animations.push(clearAnim);
+      if (onScoreChange) onScoreChange(getState());
+      return;
+    }
+
     phase = 'animating';
     Audio.playSwap();
+    Effects.hapticLight();
     clearHint(); // Feature 1: clear hint on interaction
     previewSwapGhost = null; // Feature 5: clear preview
+    moveStartScore = score; // Track score at start of move
+
+    // Spawn particle trails for the swap
+    const v1 = cellVisual[cell1.row][cell1.col];
+    const v2 = cellVisual[cell2.row][cell2.col];
+    const gem1 = grid[cell1.row][cell1.col];
+    const gem2 = grid[cell2.row][cell2.col];
+    if (v1 && v2 && gem1 && gem2) {
+      Effects.spawnSwapTrail(v1.x + cellSize / 2, v1.y + cellSize / 2, v2.x + cellSize / 2, v2.y + cellSize / 2, gem1.type || 0);
+      Effects.spawnSwapTrail(v2.x + cellSize / 2, v2.y + cellSize / 2, v1.x + cellSize / 2, v1.y + cellSize / 2, gem2.type || 0);
+    }
 
     swapGridData(cell1.row, cell1.col, cell2.row, cell2.col);
 
@@ -1121,6 +1200,40 @@ const Board = (() => {
     const allMatches = findMatches();
 
     if (allMatches.length === 0) {
+      // Show total move score with dramatic reveal
+      const totalMoveScore = score - moveStartScore;
+      if (totalMoveScore > 0 && canvas) {
+        Effects.showMoveScore(totalMoveScore, canvas.width / 2, canvas.height / 2);
+      }
+
+      // Perfect move detection: check if this was the best possible move
+      if (combo >= 3 && lastMoveGemCount >= 9) {
+        Effects.triggerPerfectMove();
+        Audio.playPerfect();
+        Effects.hapticHeavy();
+      }
+      lastMoveGemCount = 0;
+
+      // Boss counter-attack
+      if (bossMaxHp > 0 && bossHp > 0 && phase !== 'gameover') {
+        bossAttackTimer++;
+        const attackThreshold = bossHp <= bossMaxHp * 0.33 ? 2 : bossHp <= bossMaxHp * 0.66 ? 3 : 4;
+        if (bossAttackTimer >= attackThreshold) {
+          bossAttackTimer = 0;
+          const bossConfig = levelConfig && levelConfig.island ? Campaign.BOSSES[levelConfig.island.id] : null;
+          const attackName = bossConfig ? bossConfig.attack : 'Boss Attack!';
+          const bossPhaseNow = bossHp <= bossMaxHp * 0.33 ? 3 : bossHp <= bossMaxHp * 0.66 ? 2 : 1;
+          let dmgMoves = bossPhaseNow >= 3 ? 2 : bossPhaseNow >= 2 ? 1 : 0;
+          let dmgScore = bossPhaseNow >= 2 ? 50 * bossPhaseNow : 0;
+          Effects.triggerBossAttack(attackName, dmgMoves, dmgScore);
+          Audio.playBossAttack();
+          Effects.hapticHeavy();
+          shakeAmount = 12;
+          if (dmgMoves > 0 && movesLeft > 1) movesLeft = Math.max(1, movesLeft - dmgMoves);
+          if (dmgScore > 0) score = Math.max(0, score - dmgScore);
+        }
+      }
+
       // Validate the board is fully populated before going idle
       try {
         validateAndRepairBoard();
@@ -1148,8 +1261,20 @@ const Board = (() => {
 
     const matchTypes = allMatches.map(c => grid[c.row] && grid[c.row][c.col] ? grid[c.row][c.col].type : 0).filter(t => t !== null && t !== undefined);
     const mainGemType = matchTypes.length > 0 ? matchTypes[0] : 0;
-    Audio.playMatch(mainGemType);
+
+    // Escalating pitch chain sound
+    Audio.playChainMatch(combo - 1);
     if (combo >= 2) Audio.playCombo(combo);
+    if (combo >= 5) Audio.playMegaCombo(combo);
+
+    // Haptic feedback
+    Effects.hapticCombo(combo);
+
+    // Fill rage meter
+    Effects.addRage(allMatches.length * 2 + combo * 3);
+    if (Effects.isRageReady()) {
+      Audio.playRageReady();
+    }
 
     // Trigger first_match achievement
     try {
@@ -1275,18 +1400,35 @@ const Board = (() => {
       });
     });
 
-    // Combo text
+    // Spawn explosion bursts and individual gem score floats
+    allClears.forEach(cell => {
+      try {
+        const v = cellVisual[cell.row] && cellVisual[cell.row][cell.col];
+        const g = grid[cell.row] && grid[cell.row][cell.col];
+        if (v && g && g.type !== null) {
+          // Explosion burst on each cleared gem
+          Effects.spawnExplosion(v.x + cellSize / 2, v.y + cellSize / 2, g.type, combo >= 5 ? 16 : 10);
+          // Individual score float from each gem
+          const perGemScore = 15 + (combo > 1 ? Math.round(combo * 8 / allClears.length) : 0);
+          Effects.spawnGemScore(v.x + cellSize / 2, v.y, perGemScore, g.type);
+        }
+      } catch (e) { /* non-critical */ }
+    });
+
+    // Combo chain counter text (progressively bigger/dramatic)
     if (combo >= 2) {
       const mx = allClears.reduce((s, m) => s + m.col, 0) / allClears.length * cellSize + padding + cellSize / 2;
       const my = allClears.reduce((s, m) => s + m.row, 0) / allClears.length * cellSize + padding;
+      Effects.spawnChainText(mx, my, combo);
+      // Multiplier stack visual
+      Effects.showMultiplier(combo, mx, my);
+
       if (combo >= 5) {
-        spawnFloatText(mx, my - 10, `MEGA COMBO x${combo}!!`, '#FF4500', 2.0);
         shakeAmount = 8 + combo * 2;
+        Audio.playExplosion();
       } else if (combo >= 3) {
-        spawnFloatText(mx, my - 5, `COMBO x${combo}!`, '#FF8C00', 1.5);
         shakeAmount = 5 + combo * 1.5;
       } else {
-        spawnFloatText(mx, my, `${combo} combo!`, '#FFD700', 1.1);
         shakeAmount = 3 + combo * 2;
       }
     }
@@ -1298,12 +1440,8 @@ const Board = (() => {
       spawnFloatText(mx, my, `RHYTHM x${rhythmMult.toFixed(1)} +${rhythmBonus}`, '#00FF88', 0.9);
     }
 
-    // Score text
-    {
-      const mx = allClears.reduce((s, m) => s + m.col, 0) / allClears.length * cellSize + padding + cellSize / 2;
-      const my = allClears.reduce((s, m) => s + m.row, 0) / allClears.length * cellSize + padding + cellSize / 2;
-      spawnFloatText(mx, my - 15, `+${baseScore + comboBonus + rhythmBonus}`, '#FF6B8A');
-    }
+    // Total move score with dramatic reveal (shown only at end of chain via check below)
+    lastMoveGemCount += allClears.length;
 
     if (onScoreChange) onScoreChange(getState());
 
@@ -1573,8 +1711,9 @@ const Board = (() => {
       setTimeout(() => { if (onLevelFail) onLevelFail(getState()); }, 400);
     } else if (timeLeft !== -1 && timeLeft <= 0) {
       phase = 'gameover';
-      Audio.playFail();
-      setTimeout(() => { if (onLevelFail) onLevelFail(getState()); }, 400);
+      // Time attack ends with celebration (not fail) — fire level complete
+      Audio.playLevelUp();
+      setTimeout(() => { if (onLevelComplete) onLevelComplete(getState()); }, 600);
     }
   }
 
@@ -1786,36 +1925,72 @@ const Board = (() => {
     constructor(drops, duration, onDone) {
       this.drops = drops.filter(d => d && d.row >= 0 && d.row < rows && d.col >= 0 && d.col < cols);
       this.duration = duration; this.elapsed = 0; this.onDone = onDone;
+      // bounce phase runs after drop lands
+      this.bounceElapsed = 0;
+      this.bounceDuration = 0.18;
+      this.landed = false;
     }
     update(dt) {
-      this.elapsed += dt;
-      let t = Math.min(1, this.elapsed / this.duration);
-      t = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-      this.drops.forEach(d => {
-        if (cellVisual[d.row] && cellVisual[d.row][d.col]) {
-          const targetY = d.row * cellSize + padding;
-          cellVisual[d.row][d.col].y = d.fromY + (targetY - d.fromY) * t;
-        }
-      });
-      if (this.elapsed >= this.duration) {
+      if (!this.landed) {
+        this.elapsed += dt;
+        let t = Math.min(1, this.elapsed / this.duration);
+        t = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
         this.drops.forEach(d => {
           if (cellVisual[d.row] && cellVisual[d.row][d.col]) {
-            cellVisual[d.row][d.col].x = d.col * cellSize + padding;
-            cellVisual[d.row][d.col].y = d.row * cellSize + padding;
-            cellVisual[d.row][d.col].scale = 1;
-            cellVisual[d.row][d.col].alpha = 1;
+            const targetY = d.row * cellSize + padding;
+            cellVisual[d.row][d.col].y = d.fromY + (targetY - d.fromY) * t;
           }
         });
-        try {
-          if (this.onDone) this.onDone();
-        } catch (e) {
-          console.error('[AzerothMatch] DropAnim callback error:', e);
-          try { validateAndRepairBoard(); } catch (e2) {}
-          phase = 'idle';
+        if (this.elapsed >= this.duration) {
+          this.landed = true;
+          // snap to grid
+          this.drops.forEach(d => {
+            if (cellVisual[d.row] && cellVisual[d.row][d.col]) {
+              cellVisual[d.row][d.col].x = d.col * cellSize + padding;
+              cellVisual[d.row][d.col].y = d.row * cellSize + padding;
+              cellVisual[d.row][d.col].scale = 1;
+              cellVisual[d.row][d.col].alpha = 1;
+            }
+          });
         }
-        return false;
+        return true;
       }
-      return true;
+
+      // Bounce phase: quick squash-and-stretch after landing
+      if (!prefersReducedMotion) {
+        this.bounceElapsed += dt;
+        const bt = Math.min(1, this.bounceElapsed / this.bounceDuration);
+        // Squash then stretch: scale goes 0.85 → 1.1 → 1.0
+        let bounceScale;
+        if (bt < 0.4) {
+          bounceScale = 1.0 - 0.15 * (bt / 0.4);
+        } else if (bt < 0.7) {
+          bounceScale = 0.85 + 0.25 * ((bt - 0.4) / 0.3);
+        } else {
+          bounceScale = 1.1 - 0.1 * ((bt - 0.7) / 0.3);
+        }
+        this.drops.forEach(d => {
+          if (cellVisual[d.row] && cellVisual[d.row][d.col]) {
+            cellVisual[d.row][d.col].scale = bounceScale;
+          }
+        });
+        if (this.bounceElapsed < this.bounceDuration) return true;
+        // reset scale to 1 after bounce
+        this.drops.forEach(d => {
+          if (cellVisual[d.row] && cellVisual[d.row][d.col]) {
+            cellVisual[d.row][d.col].scale = 1;
+          }
+        });
+      }
+
+      try {
+        if (this.onDone) this.onDone();
+      } catch (e) {
+        console.error('[AzerothMatch] DropAnim callback error:', e);
+        try { validateAndRepairBoard(); } catch (e2) {}
+        phase = 'idle';
+      }
+      return false;
     }
   }
 
