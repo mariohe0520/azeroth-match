@@ -1283,12 +1283,16 @@ const Board = (() => {
     // Trigger first_match achievement
     try {
       const achData = Storage.get();
+      let achChanged = false;
       if (achData && !achData.achievements['first_match']) {
         achData.achievements['first_match'] = { unlocked: true, unlockedAt: Date.now() };
+        achChanged = true;
       }
       if (achData && combo >= 2 && !achData.achievements['first_combo']) {
         achData.achievements['first_combo'] = { unlocked: true, unlockedAt: Date.now() };
+        achChanged = true;
       }
+      if (achChanged) Storage.save();
     } catch (e) { /* non-critical */ }
 
     // Score calculation with rhythm multiplier
