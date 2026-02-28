@@ -214,7 +214,9 @@ const Board = (() => {
         }
       }
     }
-    animations.push(new DropAnim(drops, 0.5, null));
+    // Block input during entrance so it can't race with first match
+    phase = 'animating';
+    animations.push(new DropAnim(drops, 0.5, () => { phase = 'idle'; }));
   }
 
   function generateGrid(obstacles) {
@@ -2377,10 +2379,16 @@ const Board = (() => {
       }
     }
 
-    // Draw gems
+    // Draw gems — null-safe: repair any broken cellVisual on the fly
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         if (grid[r][c] && grid[r][c].type !== null) {
+          if (!cellVisual[r] || !cellVisual[r][c]) {
+            resetVisual(r, c);
+          } else if (cellVisual[r][c].scale <= 0 || cellVisual[r][c].alpha <= 0) {
+            cellVisual[r][c].scale = 1;
+            cellVisual[r][c].alpha = 1;
+          }
           const v = cellVisual[r][c];
           Gems.drawGem(ctx, v.x, v.y, cellSize, grid[r][c], v.scale, v.alpha, timestamp);
         }
@@ -2657,10 +2665,8 @@ const Board = (() => {
         // Emergency recovery — never let the game freeze
         try {
           animations = [];
-          if (phase === 'animating') {
-            phase = 'idle';
-            validateAndRepairBoard();
-          }
+          phase = 'idle';
+          validateAndRepairBoard();
         } catch (recoveryErr) {
           console.error('[AzerothMatch] Recovery also failed:', recoveryErr);
           phase = 'idle';
