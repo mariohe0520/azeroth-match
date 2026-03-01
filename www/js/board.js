@@ -88,6 +88,15 @@ const Board = (() => {
 
   // Reduced motion preference
   let prefersReducedMotion = false;
+  let prefersReducedMotionMQ = null;
+  let prefersReducedMotionListener = null;
+  let resizeTimeout = null;
+  let resizeHandler = null;
+  const DEBUG = window.__AZEROTH_DEBUG__ === true;
+
+  function debugWarn(...args) {
+    if (DEBUG) console.warn(...args);
+  }
 
   // ======== INITIALIZATION ========
 
@@ -97,16 +106,23 @@ const Board = (() => {
 
     // Check reduced motion preference
     if (window.matchMedia) {
+      if (prefersReducedMotionMQ && prefersReducedMotionListener) {
+        prefersReducedMotionMQ.removeEventListener('change', prefersReducedMotionListener);
+      }
       const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
       prefersReducedMotion = mq.matches;
-      mq.addEventListener('change', () => { prefersReducedMotion = mq.matches; });
+      prefersReducedMotionMQ = mq;
+      prefersReducedMotionListener = () => { prefersReducedMotion = mq.matches; };
+      mq.addEventListener('change', prefersReducedMotionListener);
     }
 
     if (config) applyConfig(config);
     setupInput();
 
-    let resizeTimeout = null;
-    window.addEventListener('resize', () => {
+    if (resizeHandler) {
+      window.removeEventListener('resize', resizeHandler);
+    }
+    resizeHandler = () => {
       if (resizeTimeout) clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(() => {
         if (phase !== 'animating') {
@@ -114,7 +130,8 @@ const Board = (() => {
           initCellVisual();
         }
       }, 200);
-    });
+    };
+    window.addEventListener('resize', resizeHandler);
   }
 
   function applyConfig(config) {
@@ -196,19 +213,19 @@ const Board = (() => {
     updateCanvasSize();
     generateGrid(config.obstacles || []);
 
-    // Ensure no initial matches
+    // Ensure no initial matches and at least one valid move
     let attempts = 0;
-    while (findMatches().length > 0 && attempts < 100) {
+    while ((findMatches().length > 0 || !hasValidMoves()) && attempts < 120) {
       generateGrid(config.obstacles || []);
       attempts++;
     }
 
-    // Entrance drop animation
+    // Entrance drop animation — stagger by column for a left→right cascade wave
     const drops = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         if (grid[r][c] && grid[r][c].type !== null) {
-          const fromY = -(rows - r + Math.random() * 2) * cellSize;
+          const fromY = -(rows - r + Math.random() * 2 + c * 0.45) * cellSize;
           cellVisual[r][c].y = fromY;
           drops.push({ row: r, col: c, fromY });
         }
@@ -422,24 +439,75 @@ const Board = (() => {
 
   // Check if any valid moves exist
   function hasValidMoves() {
+    function typeAtAfterSwap(row, col, r1, c1, t1, r2, c2, t2) {
+      if (row === r1 && col === c1) return t1;
+      if (row === r2 && col === c2) return t2;
+      const cell = grid[row] && grid[row][col];
+      if (!cell || cell.type === null || cell.type === undefined) return null;
+      if (cell.obstacle && cell.obstacle.id === 'stone') return null;
+      return cell.type;
+    }
+
+    function createsLineAt(row, col, r1, c1, t1, r2, c2, t2) {
+      const centerType = typeAtAfterSwap(row, col, r1, c1, t1, r2, c2, t2);
+      if (centerType === null) return false;
+
+      let horizontal = 1;
+      for (let dc = -1; dc >= -2; dc--) {
+        const nc = col + dc;
+        if (nc < 0) break;
+        if (typeAtAfterSwap(row, nc, r1, c1, t1, r2, c2, t2) === centerType) horizontal++;
+        else break;
+      }
+      for (let dc = 1; dc <= 2; dc++) {
+        const nc = col + dc;
+        if (nc >= cols) break;
+        if (typeAtAfterSwap(row, nc, r1, c1, t1, r2, c2, t2) === centerType) horizontal++;
+        else break;
+      }
+      if (horizontal >= 3) return true;
+
+      let vertical = 1;
+      for (let dr = -1; dr >= -2; dr--) {
+        const nr = row + dr;
+        if (nr < 0) break;
+        if (typeAtAfterSwap(nr, col, r1, c1, t1, r2, c2, t2) === centerType) vertical++;
+        else break;
+      }
+      for (let dr = 1; dr <= 2; dr++) {
+        const nr = row + dr;
+        if (nr >= rows) break;
+        if (typeAtAfterSwap(nr, col, r1, c1, t1, r2, c2, t2) === centerType) vertical++;
+        else break;
+      }
+      return vertical >= 3;
+    }
+
+    function isValidSwapTarget(row, col) {
+      return row >= 0 && row < rows
+        && col >= 0 && col < cols
+        && grid[row] && grid[row][col]
+        && grid[row][col].type !== null
+        && !(grid[row][col].obstacle && grid[row][col].obstacle.id === 'stone');
+    }
+
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         if (!grid[r][c] || grid[r][c].type === null) continue;
         if (grid[r][c].obstacle && grid[r][c].obstacle.id === 'stone') continue;
-
-        // Try swap right
-        if (c + 1 < cols && grid[r][c + 1] && grid[r][c + 1].type !== null
-            && !(grid[r][c + 1].obstacle && grid[r][c + 1].obstacle.id === 'stone')) {
-          swapGridData(r, c, r, c + 1);
-          if (findMatches().length > 0) { swapGridData(r, c, r, c + 1); return true; }
-          swapGridData(r, c, r, c + 1);
-        }
-        // Try swap down
-        if (r + 1 < rows && grid[r + 1][c] && grid[r + 1][c].type !== null
-            && !(grid[r + 1][c].obstacle && grid[r + 1][c].obstacle.id === 'stone')) {
-          swapGridData(r, c, r + 1, c);
-          if (findMatches().length > 0) { swapGridData(r, c, r + 1, c); return true; }
-          swapGridData(r, c, r + 1, c);
+        const typeA = grid[r][c].type;
+        const neighbors = [
+          { nr: r, nc: c + 1 },
+          { nr: r + 1, nc: c }
+        ];
+        for (const { nr, nc } of neighbors) {
+          if (!isValidSwapTarget(nr, nc)) continue;
+          const typeB = grid[nr][nc].type;
+          if (typeA === typeB) continue;
+          if (createsLineAt(r, c, r, c, typeB, nr, nc, typeA) ||
+              createsLineAt(nr, nc, r, c, typeB, nr, nc, typeA)) {
+            return true;
+          }
         }
       }
     }
@@ -1187,17 +1255,117 @@ const Board = (() => {
           cellVisual[r][c] = { x: c * cellSize + padding, y: r * cellSize + padding, scale: 1, alpha: 1 };
         }
         if (grid[r][c] && grid[r][c].type !== null) {
-          if (cellVisual[r][c].scale <= 0) cellVisual[r][c].scale = 1;
-          if (cellVisual[r][c].alpha <= 0) cellVisual[r][c].alpha = 1;
+          const vis = cellVisual[r][c];
+          if (!Number.isFinite(vis.scale) || vis.scale <= 0) vis.scale = 1;
+          if (!Number.isFinite(vis.alpha) || vis.alpha <= 0) vis.alpha = 1;
           cellVisual[r][c].x = c * cellSize + padding;
           cellVisual[r][c].y = r * cellSize + padding;
         }
       }
     }
     if (repaired) {
-      console.warn('Board validated and repaired: filled null cells');
+      debugWarn('Board validated and repaired: filled null cells');
     }
     return repaired;
+  }
+
+  function detectBoardCorruption() {
+    let playableCells = 0;
+    let filledCells = 0;
+    let hasFloatingGap = false;
+    let invisibleGemCells = 0;
+
+    for (let c = 0; c < cols; c++) {
+      let seenGap = false;
+      for (let r = rows - 1; r >= 0; r--) {
+        const cell = grid[r][c];
+        const isStone = !!(cell && cell.obstacle && cell.obstacle.id === 'stone' && cell.type === null);
+        if (isStone) {
+          seenGap = false;
+          continue;
+        }
+
+        playableCells++;
+        const hasGem = !!(cell && cell.type !== null && cell.type !== undefined);
+        if (hasGem) {
+          filledCells++;
+          const vis = cellVisual[r] && cellVisual[r][c];
+          const visInvisible = !vis
+            || !Number.isFinite(vis.alpha) || !Number.isFinite(vis.scale)
+            || vis.alpha <= 0.02 || vis.scale <= 0.02;
+          if (visInvisible) invisibleGemCells++;
+          if (seenGap) hasFloatingGap = true;
+        } else {
+          seenGap = true;
+        }
+      }
+    }
+
+    if (playableCells <= 0) return { corrupted: false, reason: '' };
+    const fillRatio = filledCells / playableCells;
+    const invisibleRatio = filledCells > 0 ? (invisibleGemCells / filledCells) : 0;
+    const corrupted = hasFloatingGap || fillRatio < 0.9 || invisibleRatio > 0.08;
+    return {
+      corrupted,
+      reason: hasFloatingGap
+        ? 'floating_gap'
+        : (fillRatio < 0.9 ? 'low_fill_ratio' : (invisibleRatio > 0.08 ? 'visual_desync' : '')),
+      fillRatio,
+      invisibleRatio
+    };
+  }
+
+  function enforcePlayableBoard(reason) {
+    let repaired = false;
+    try {
+      repaired = validateAndRepairBoard() || repaired;
+    } catch (e) {
+      console.error('[AzerothMatch] validateAndRepairBoard failed:', e);
+    }
+
+    let hasMoves = true;
+    try {
+      hasMoves = hasValidMoves();
+    } catch (e) {
+      hasMoves = false;
+    }
+    if (!hasMoves) {
+      reshuffleBoard();
+      repaired = true;
+      if (!hasValidMoves()) {
+        emergencyRecoverBoard(reason || 'no_valid_moves');
+        return true;
+      }
+    }
+    return repaired;
+  }
+
+  function emergencyRecoverBoard(reason) {
+    debugWarn('[AzerothMatch] Emergency board recovery:', reason);
+    const obstacles = levelConfig && Array.isArray(levelConfig.obstacles) ? levelConfig.obstacles : [];
+
+    animations = [];
+    selected = null;
+    hoverCell = null;
+    hintData = null;
+    hintActive = false;
+    previewSwapGhost = null;
+
+    generateGrid(obstacles);
+    let attempts = 0;
+    while (attempts < 80 && (findMatches().length > 0 || !hasValidMoves())) {
+      generateGrid(obstacles);
+      attempts++;
+    }
+    validateAndRepairBoard();
+    phase = 'idle';
+
+    if (canvas) {
+      spawnFloatText(canvas.width / 2, canvas.height / 2, '战局重整', '#FFD700', 1.05);
+    }
+    if (onScoreChange) {
+      try { onScoreChange(getState()); } catch (e) {}
+    }
   }
 
   function processMatchChain() {
@@ -1242,11 +1410,7 @@ const Board = (() => {
 
       // Validate the board is fully populated before going idle
       try {
-        validateAndRepairBoard();
-        // Check for no valid moves -> reshuffle
-        if (!hasValidMoves() && phase !== 'gameover') {
-          reshuffleBoard();
-        }
+        enforcePlayableBoard('chain_end');
         checkGameState();
       } catch (e) {
         console.error('[AzerothMatch] End-of-chain validation error:', e);
@@ -1254,7 +1418,7 @@ const Board = (() => {
       if (phase !== 'gameover') phase = 'idle';
       if (onMoveComplete) {
         try { onMoveComplete(getState()); } catch (e) {
-          console.warn('[AzerothMatch] onMoveComplete callback error:', e);
+          debugWarn('[AzerothMatch] onMoveComplete callback error:', e);
         }
       }
       return;
@@ -1320,7 +1484,7 @@ const Board = (() => {
           if (data && data.stats) data.stats.totalGems++;
         } catch (e) {
           // Prevent storage errors from crashing the match chain
-          console.warn('Storage update error during match processing:', e);
+          debugWarn('Storage update error during match processing:', e);
         }
       }
     });
@@ -1372,7 +1536,7 @@ const Board = (() => {
           } catch (e2) { /* non-critical */ }
         }
       } catch (e) {
-        console.warn('[AzerothMatch] Special gem creation error:', e);
+        debugWarn('[AzerothMatch] Special gem creation error:', e);
       }
     });
 
@@ -1392,7 +1556,7 @@ const Board = (() => {
           }
         }
       } catch (e) {
-        console.warn('[AzerothMatch] Special activation error:', e);
+        debugWarn('[AzerothMatch] Special activation error:', e);
       }
     });
 
@@ -1660,6 +1824,13 @@ const Board = (() => {
       attempts++;
     } while (attempts < maxAttempts && (findMatches().length > 0 || !hasValidMoves()));
 
+    // Ensure visuals never stay hidden after reshuffle.
+    validateAndRepairBoard();
+    if (!hasValidMoves()) {
+      emergencyRecoverBoard('reshuffle_failed');
+      return;
+    }
+
     spawnFloatText(canvas ? canvas.width / 2 : 200, canvas ? canvas.height / 2 : 200, 'Reshuffle!', '#FFD700');
   }
 
@@ -1699,8 +1870,10 @@ const Board = (() => {
         } else {
           // Gem is already in the right slot; ensure valid visual state
           if (cellVisual[r] && cellVisual[r][c]) {
-            if (cellVisual[r][c].scale <= 0) cellVisual[r][c].scale = 1;
-            if (cellVisual[r][c].alpha <= 0) cellVisual[r][c].alpha = 1;
+            cellVisual[r][c].x = c * cellSize + padding;
+            cellVisual[r][c].y = r * cellSize + padding;
+            cellVisual[r][c].scale = 1;
+            cellVisual[r][c].alpha = 1;
           }
         }
         writeRow--;
@@ -1711,8 +1884,8 @@ const Board = (() => {
       for (let r = writeRow; r >= 0; r--) {
         if (grid[r][c] !== null) continue; // skip if already filled (e.g. stone above)
         grid[r][c] = Gems.createGem(Math.floor(Math.random() * numTypes));
-        // New gems fall from above the board; stagger them by position
-        const fromY = -(writeRow - r + 1) * cellSize - padding;
+        // New gems fall from above; stagger by row position AND column for cascade wave
+        const fromY = -(writeRow - r + 1 + c * 0.4) * cellSize - padding;
         if (cellVisual[r] && cellVisual[r][c]) {
           cellVisual[r][c].x = c * cellSize + padding;
           cellVisual[r][c].y = fromY;   // start above screen for drop animation
@@ -1740,8 +1913,10 @@ const Board = (() => {
         }
         // Ensure all non-null gems have valid visual state (never invisible)
         if (grid[r][c] && grid[r][c].type !== null && cellVisual[r] && cellVisual[r][c]) {
-          if (cellVisual[r][c].scale <= 0) cellVisual[r][c].scale = 1;
-          if (cellVisual[r][c].alpha <= 0) cellVisual[r][c].alpha = 1;
+          cellVisual[r][c].x = c * cellSize + padding;
+          cellVisual[r][c].y = r * cellSize + padding;
+          cellVisual[r][c].scale = 1;
+          cellVisual[r][c].alpha = 1;
         }
       }
     }
@@ -2233,6 +2408,15 @@ const Board = (() => {
       selected = cell;
       Audio.playSelect();
     } else if (selected.row === cell.row && selected.col === cell.col) {
+      if (cellVisual[cell.row] && cellVisual[cell.row][cell.col]) {
+        cellVisual[cell.row][cell.col].scale = 0.9;
+        setTimeout(() => {
+          if (cellVisual[cell.row] && cellVisual[cell.row][cell.col]) {
+            cellVisual[cell.row][cell.col].scale = 1;
+          }
+        }, 120);
+      }
+      Audio.playSelect();
       selected = null;
       previewSwapGhost = null;
     } else if (isAdjacent(selected, cell)) {
@@ -2626,7 +2810,7 @@ const Board = (() => {
     if (phase === 'animating' && animations.length === 0) {
       stuckTimer += dt;
       if (stuckTimer > STUCK_TIMEOUT) {
-        console.warn('[AzerothMatch] Phase stuck at animating with no animations — auto-recovering');
+        debugWarn('[AzerothMatch] Phase stuck at animating with no animations — auto-recovering');
         phase = 'idle';
         validateAndRepairBoard();
         stuckTimer = 0;
@@ -2634,7 +2818,7 @@ const Board = (() => {
           try { onMoveComplete(getState()); } catch (e) {}
         }
       }
-    } else {
+    } else if (phase !== 'animating') {
       stuckTimer = 0;
     }
 
@@ -2647,17 +2831,39 @@ const Board = (() => {
     // Feature 3: Rhythm system
     updateRhythmSystem(dt);
 
+    // Integrity watchdog: catches half-empty / floating boards and auto-recovers.
+    if (phase === 'idle' && animations.length === 0) {
+      integrityCheckTimer += dt;
+      if (integrityCheckTimer >= 0.8) {
+        integrityCheckTimer = 0;
+        try {
+          const check = detectBoardCorruption();
+          if (check.corrupted) {
+            emergencyRecoverBoard(check.reason);
+          } else if (!hasValidMoves() && phase !== 'gameover') {
+            enforcePlayableBoard('watchdog_no_moves');
+          }
+        } catch (e) {
+          console.error('[AzerothMatch] Integrity watchdog error:', e);
+        }
+      }
+    } else {
+      integrityCheckTimer = 0;
+    }
+
     render(timestamp);
   }
 
   let rafHandle = null;
   let stuckTimer = 0;       // tracks how long phase='animating' with empty queue
+  let integrityCheckTimer = 0;
   const STUCK_TIMEOUT = 3.0; // seconds before auto-recovery
 
   function startLoop() {
     if (rafHandle) cancelAnimationFrame(rafHandle);
     lastTime = performance.now();
     stuckTimer = 0;
+    integrityCheckTimer = 0;
     function loop(ts) {
       try {
         update(ts);

@@ -3,7 +3,6 @@
  * Network-first strategy to prevent stale cache issues
  */
 
-const CACHE_NAME = 'azeroth-match-v6';
 const ASSETS = [
   './',
   './index.html',
@@ -21,6 +20,9 @@ const ASSETS = [
   './js/story.js',
   './manifest.json'
 ];
+const CACHE_PREFIX = 'azeroth-match';
+const CACHE_VERSION = ASSETS.join('|').split('').reduce((hash, ch) => ((hash * 31) + ch.charCodeAt(0)) >>> 0, 0).toString(16);
+const CACHE_NAME = `${CACHE_PREFIX}-${CACHE_VERSION}`;
 
 // Install: pre-cache all static assets
 self.addEventListener('install', event => {
@@ -39,7 +41,7 @@ self.addEventListener('activate', event => {
     caches.keys().then(keys => {
       return Promise.all(
         keys
-          .filter(key => key !== CACHE_NAME)
+          .filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
           .map(key => caches.delete(key))
       );
     }).then(() => {

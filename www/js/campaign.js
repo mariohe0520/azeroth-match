@@ -221,7 +221,10 @@ const Campaign = (() => {
 
     if (isBoss) {
       const boss = BOSSES[island.id];
-      bossHp = boss.hp;
+      // 非线性Boss血量曲线：前期抬升，后期递增更明显，避免线性成长过平
+      const progress = (islandIndex + 1) / ISLANDS.length;
+      const curve = 1.12 + Math.pow(progress, 1.4) * 0.28;
+      bossHp = Math.round(boss.hp * curve);
       objectives = { type: 'boss', bossName: boss.name, bossEmoji: boss.emoji };
     } else if (islandIndex === 0) {
       // First island: more variety in objectives to teach mechanics

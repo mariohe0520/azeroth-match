@@ -500,8 +500,13 @@ const App = (() => {
     // Auto-refresh garden every 30 seconds while on garden page to show harvest badges appearing
     if (stats.growing > 0 || stats.ready > 0) {
       gardenRefreshTimer = setInterval(() => {
-        if (currentPage === 'garden') renderGarden();
-        else { clearInterval(gardenRefreshTimer); gardenRefreshTimer = null; }
+        const hasActiveModal = !!document.querySelector('.modal.show');
+        if (currentPage === 'garden' && !hasActiveModal) {
+          renderGarden();
+        } else if (currentPage !== 'garden') {
+          clearInterval(gardenRefreshTimer);
+          gardenRefreshTimer = null;
+        }
       }, 30000);
     }
 
@@ -804,8 +809,11 @@ const App = (() => {
 
   function showAchievementToast(ach) {
     if (!ach) return;
-    const existing = document.querySelectorAll('.achievement-toast');
-    if (existing.length >= 3) existing[0].remove();
+    while (document.querySelectorAll('.achievement-toast').length >= 3) {
+      const oldest = document.querySelector('.achievement-toast');
+      if (!oldest) break;
+      oldest.remove();
+    }
     const currentCount = document.querySelectorAll('.achievement-toast').length;
     const topOffset = 60 + currentCount * 68;
     const toast = document.createElement('div');
