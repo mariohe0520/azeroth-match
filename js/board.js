@@ -280,10 +280,24 @@ const Board = (() => {
     // Check left
     if (col >= 2 && grid[row][col - 1] && grid[row][col - 2] &&
         grid[row][col - 1].type === type && grid[row][col - 2].type === type) return true;
+    // Check right
+    if (col + 2 < cols && grid[row][col + 1] && grid[row][col + 2] &&
+        grid[row][col + 1].type === type && grid[row][col + 2].type === type) return true;
+    // Check left-right (middle of a run)
+    if (col >= 1 && col + 1 < cols && grid[row][col - 1] && grid[row][col + 1] &&
+        grid[row][col - 1].type === type && grid[row][col + 1].type === type) return true;
     // Check up
     if (row >= 2 && grid[row - 1] && grid[row - 2] &&
         grid[row - 1][col] && grid[row - 2][col] &&
         grid[row - 1][col].type === type && grid[row - 2][col].type === type) return true;
+    // Check down
+    if (row + 2 < rows && grid[row + 1] && grid[row + 2] &&
+        grid[row + 1][col] && grid[row + 2][col] &&
+        grid[row + 1][col].type === type && grid[row + 2][col].type === type) return true;
+    // Check up-down (middle of a vertical run)
+    if (row >= 1 && row + 1 < rows && grid[row - 1] && grid[row + 1] &&
+        grid[row - 1][col] && grid[row + 1][col] &&
+        grid[row - 1][col].type === type && grid[row + 1][col].type === type) return true;
     return false;
   }
 
@@ -1246,7 +1260,7 @@ const Board = (() => {
         if (cell && cell.obstacle && cell.obstacle.id === 'stone') continue;
         // Fix null cells or cells with null/undefined type
         if (!cell || cell.type === null || cell.type === undefined) {
-          grid[r][c] = Gems.createGem(Math.floor(Math.random() * numTypes));
+          grid[r][c] = Gems.createGem(getRandomType(r, c));
           repaired = true;
         }
         // Always ensure cellVisual is valid
@@ -1411,6 +1425,12 @@ const Board = (() => {
       // Validate the board is fully populated before going idle
       try {
         enforcePlayableBoard('chain_end');
+        // Re-check for matches after board repair — enforcePlayableBoard may have
+        // filled null cells with random types that accidentally form 3-in-a-row.
+        if (phase !== 'gameover' && findMatches().length > 0) {
+          processMatchChain();
+          return;
+        }
         checkGameState();
       } catch (e) {
         console.error('[AzerothMatch] End-of-chain validation error:', e);
