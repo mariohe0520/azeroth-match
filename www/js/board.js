@@ -1883,7 +1883,7 @@ const Board = (() => {
       // All rows from writeRow down to 0 should now be empty (null)
       for (let r = writeRow; r >= 0; r--) {
         if (grid[r][c] !== null) continue; // skip if already filled (e.g. stone above)
-        grid[r][c] = Gems.createGem(Math.floor(Math.random() * numTypes));
+        grid[r][c] = Gems.createGem(getRandomType(r, c));
         // New gems fall from above; stagger by row position AND column for cascade wave
         const fromY = -(writeRow - r + 1 + c * 0.4) * cellSize - padding;
         if (cellVisual[r] && cellVisual[r][c]) {
@@ -1898,10 +1898,11 @@ const Board = (() => {
 
     // Phase 3: Safety pass — catch any cells that are still null (shouldn't happen,
     // but protects against edge cases with stone obstacles or L/T special gem creation)
+    const dropsSet = new Set(drops.map(d => `${d.row},${d.col}`));
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         if (grid[r][c] === null) {
-          grid[r][c] = Gems.createGem(Math.floor(Math.random() * numTypes));
+          grid[r][c] = Gems.createGem(getRandomType(r, c));
           const fromY = -(rows - r) * cellSize;
           if (cellVisual[r] && cellVisual[r][c]) {
             cellVisual[r][c].x = c * cellSize + padding;
@@ -1910,13 +1911,19 @@ const Board = (() => {
             cellVisual[r][c].alpha = 1;
           }
           drops.push({ row: r, col: c, fromY });
+          dropsSet.add(`${r},${c}`);
         }
-        // Ensure all non-null gems have valid visual state (never invisible)
+        // Ensure all non-null gems have valid visual state (scale/alpha only for animated gems)
         if (grid[r][c] && grid[r][c].type !== null && cellVisual[r] && cellVisual[r][c]) {
-          cellVisual[r][c].x = c * cellSize + padding;
-          cellVisual[r][c].y = r * cellSize + padding;
-          cellVisual[r][c].scale = 1;
-          cellVisual[r][c].alpha = 1;
+          const vis = cellVisual[r][c];
+          if (!Number.isFinite(vis.scale) || vis.scale <= 0) vis.scale = 1;
+          if (!Number.isFinite(vis.alpha) || vis.alpha <= 0) vis.alpha = 1;
+          // Only snap x/y for gems not already queued for drop animation
+          // (animated gems have their fromY set by Phase 1/2 and should not be overridden)
+          if (!dropsSet.has(`${r},${c}`)) {
+            cellVisual[r][c].x = c * cellSize + padding;
+            cellVisual[r][c].y = r * cellSize + padding;
+          }
         }
       }
     }
@@ -2834,7 +2841,7 @@ const Board = (() => {
     // Integrity watchdog: catches half-empty / floating boards and auto-recovers.
     if (phase === 'idle' && animations.length === 0) {
       integrityCheckTimer += dt;
-      if (integrityCheckTimer >= 0.8) {
+      if (integrityCheckTimer >= 0.3) {
         integrityCheckTimer = 0;
         try {
           const check = detectBoardCorruption();
