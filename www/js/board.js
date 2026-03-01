@@ -1745,7 +1745,7 @@ const Board = (() => {
       try {
         const drops = dropAndFill();
         if (drops.length > 0) {
-          animations.push(new DropAnim(drops, 0.35, () => processMatchChain()));
+          animations.push(new DropAnim(drops, 0.22, () => processMatchChain()));
         } else {
           processMatchChain();
         }
@@ -1904,8 +1904,8 @@ const Board = (() => {
       for (let r = writeRow; r >= 0; r--) {
         if (grid[r][c] !== null) continue; // skip if already filled (e.g. stone above)
         grid[r][c] = Gems.createGem(getRandomType(r, c));
-        // New gems fall from above; stagger by row position AND column for cascade wave
-        const fromY = -(writeRow - r + 1 + c * 0.4) * cellSize - padding;
+        // New gems fall from just above canvas top (clamped to 1 cell above) with small column stagger
+        const fromY = Math.max(-(writeRow - r + 1 + c * 0.4) * cellSize - padding, -cellSize);
         if (cellVisual[r] && cellVisual[r][c]) {
           cellVisual[r][c].x = c * cellSize + padding;
           cellVisual[r][c].y = fromY;   // start above screen for drop animation
@@ -1923,7 +1923,7 @@ const Board = (() => {
       for (let c = 0; c < cols; c++) {
         if (grid[r][c] === null) {
           grid[r][c] = Gems.createGem(getRandomType(r, c));
-          const fromY = -(rows - r) * cellSize;
+          const fromY = Math.max(-(rows - r) * cellSize, -cellSize);
           if (cellVisual[r] && cellVisual[r][c]) {
             cellVisual[r][c].x = c * cellSize + padding;
             cellVisual[r][c].y = fromY;
